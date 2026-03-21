@@ -3,51 +3,60 @@ import 'package:firebase_auth/firebase_auth.dart';
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  Future<User?> signUp(String email, String password) async {
+  String _mapErrorCode(String errorCode) {
+    switch (errorCode) {
+      case 'invalid-email':
+        return 'Invalid email format';
+      case 'user-not-found':
+        return 'User not found';
+      case 'wrong-password':
+        return 'Incorrect password';
+      case 'email-already-in-use':
+        return 'Email already registered';
+      case 'weak-password':
+        return 'Password should be at least 6 characters';
+      case 'user-disabled':
+        return 'This user has been disabled';
+      case 'operation-not-allowed':
+        return 'Email/password accounts are not enabled';
+      default:
+        return 'An error occurred. Please try again';
+    }
+  }
+
+  Future<Map<String, dynamic>> signUp(String email, String password) async {
     try {
       UserCredential result = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
         password: password.trim(),
       );
-      print("Signup Success: ${result.user?.email}");
-      return result.user;
+      return {'user': result.user, 'error': null};
     } on FirebaseAuthException catch (e) {
-      print("SIGNUP ERROR CODE: ${e.code}");
-      print("SIGNUP ERROR MESSAGE: ${e.message}");
-      return null;
-    } catch (e, stack) {
-      print("UNKNOWN SIGNUP ERROR: $e");
-      print("STACK TRACE: $stack");
-      return null;
+      return {'user': null, 'error': _mapErrorCode(e.code)};
+    } catch (e) {
+      return {'user': null, 'error': 'An unexpected error occurred'};
     }
   }
 
-  Future<User?> login(String email, String password) async {
+  Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
         email: email.trim(),
         password: password.trim(),
       );
-      print("Login Success: ${result.user?.email}");
-      return result.user;
+      return {'user': result.user, 'error': null};
     } on FirebaseAuthException catch (e) {
-      print("LOGIN ERROR CODE: ${e.code}");
-      print("LOGIN ERROR MESSAGE: ${e.message}");
-      return null;
-    } catch (e, stack) {
-      print("UNKNOWN LOGIN ERROR: $e");
-      print("STACK TRACE: $stack");
-      return null;
+      return {'user': null, 'error': _mapErrorCode(e.code)};
+    } catch (e) {
+      return {'user': null, 'error': 'An unexpected error occurred'};
     }
   }
 
   Future<void> logout() async {
     try {
       await _auth.signOut();
-      print("Logout Success");
-    } catch (e, stack) {
+    } catch (e) {
       print("LOGOUT ERROR: $e");
-      print("STACK TRACE: $stack");
     }
   }
 }

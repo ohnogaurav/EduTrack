@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final String role;
+  const LoginScreen({super.key, required this.role});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -13,10 +14,16 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('EduTrack Login')),
+      appBar: AppBar(title: Text('Login as ${widget.role}')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -34,31 +41,19 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () async {
-                final user = await _authService.login(
+                final result = await _authService.login(
                   _emailController.text,
                   _passwordController.text,
                 );
-                if (user != null) {
-                  print("Login Successful: ${user.email}");
-                } else {
-                  print("Login Failed");
+                
+                if (result['error'] != null) {
+                  _showSnackBar(result['error']);
+                } else if (result['user'] != null) {
+                  _showSnackBar("Login Successful");
+                  print("Logged in as ${widget.role}: ${result['user'].email}");
                 }
               },
               child: const Text('Login'),
-            ),
-            TextButton(
-              onPressed: () async {
-                final user = await _authService.signUp(
-                  _emailController.text,
-                  _passwordController.text,
-                );
-                if (user != null) {
-                  print("Signup Successful: ${user.email}");
-                } else {
-                  print("Signup Failed");
-                }
-              },
-              child: const Text('Sign Up'),
             ),
           ],
         ),
