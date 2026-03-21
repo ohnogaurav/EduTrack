@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
+import '../student/student_dashboard.dart';
+import '../teacher/teacher_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   final String role;
@@ -52,13 +54,23 @@ class _LoginScreenState extends State<LoginScreen> {
                   _showSnackBar(result['error']);
                 } else if (result['user'] != null) {
                   final String? role = await _firestoreService.getUserRole(result['user'].uid);
-                  print("User Role from Firestore: $role");
                   
                   if (role != widget.role.toLowerCase()) {
                     _showSnackBar("Unauthorized: You are not a ${widget.role}");
                   } else {
                     _showSnackBar("Login Successful");
-                    print("Logged in as ${widget.role}: ${result['user'].email}");
+                    
+                    if (role == 'student') {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => const StudentDashboard()),
+                      );
+                    } else if (role == 'teacher') {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => const TeacherDashboard()),
+                      );
+                    }
                   }
                 }
               },
