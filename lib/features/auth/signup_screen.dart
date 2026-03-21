@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -10,11 +11,12 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   final AuthService _authService = AuthService();
+  final FirestoreService _firestoreService = FirestoreService();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   
-  String _selectedRole = 'student'; // Default role
+  String _selectedRole = 'student';
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -78,8 +80,13 @@ class _SignupScreenState extends State<SignupScreen> {
                   if (result['error'] != null) {
                     _showSnackBar(result['error']);
                   } else if (result['user'] != null) {
+                    await _firestoreService.createUser(
+                      result['user'].uid,
+                      _nameController.text,
+                      _emailController.text,
+                      _selectedRole,
+                    );
                     _showSnackBar("Signup Successful");
-                    print("Signed up: ${result['user'].email} as $_selectedRole");
                   }
                 },
                 child: const Text('Sign Up'),

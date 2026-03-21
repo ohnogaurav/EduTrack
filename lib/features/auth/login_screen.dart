@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final String role;
@@ -11,6 +12,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService();
+  final FirestoreService _firestoreService = FirestoreService();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -49,8 +51,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 if (result['error'] != null) {
                   _showSnackBar(result['error']);
                 } else if (result['user'] != null) {
-                  _showSnackBar("Login Successful");
-                  print("Logged in as ${widget.role}: ${result['user'].email}");
+                  final String? role = await _firestoreService.getUserRole(result['user'].uid);
+                  print("User Role from Firestore: $role");
+                  
+                  if (role != widget.role.toLowerCase()) {
+                    _showSnackBar("Unauthorized: You are not a ${widget.role}");
+                  } else {
+                    _showSnackBar("Login Successful");
+                    print("Logged in as ${widget.role}: ${result['user'].email}");
+                  }
                 }
               },
               child: const Text('Login'),
