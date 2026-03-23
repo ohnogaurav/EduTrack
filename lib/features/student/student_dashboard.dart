@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/firestore_service.dart';
+import '../../models/session_model.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -11,6 +12,7 @@ class StudentDashboard extends StatefulWidget {
 class _StudentDashboardState extends State<StudentDashboard> {
   final FirestoreService _firestoreService = FirestoreService();
   List<Map<String, dynamic>> _subjects = [];
+  List<SessionModel> _activeSessions = [];
 
   @override
   Widget build(BuildContext context) {
@@ -33,42 +35,54 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
             const SizedBox(height: 10),
 
-            // 🔥 Debug Button for Active Sessions
+            // 🔹 Load Active Sessions Button
             ElevatedButton(
               onPressed: () async {
                 final sessions = await _firestoreService.getActiveSessions();
-
-                print("===== ACTIVE SESSIONS TEST =====");
-                print("COUNT: ${sessions.length}");
-
-                for (var s in sessions) {
-                  print("Session -> Subject: ${s.subjectId}");
-                  print("Start: ${s.startTime}");
-                  print("Duration: ${s.duration}");
-                  print("------------------------------");
-                }
+                setState(() {
+                  _activeSessions = sessions;
+                });
               },
-              child: const Text('Check Active Sessions'),
+              child: const Text('Load Active Sessions'),
             ),
 
             const SizedBox(height: 20),
 
-            // 🔹 Subject List
+            const Text("Available Subjects", style: TextStyle(fontWeight: FontWeight.bold)),
             Expanded(
               child: _subjects.isEmpty
                   ? const Center(child: Text('No subjects loaded'))
                   : ListView.builder(
-                itemCount: _subjects.length,
-                itemBuilder: (context, index) {
-                  return ListTile(
-                    title:
-                    Text(_subjects[index]['name'] ?? 'No Name'),
-                    subtitle: Text(
-                      'Teacher: ${_subjects[index]['teacherName'] ?? 'Unknown'}',
+                      itemCount: _subjects.length,
+                      itemBuilder: (context, index) {
+                        return ListTile(
+                          title: Text(_subjects[index]['name'] ?? 'No Name'),
+                          subtitle: Text(
+                            'Teacher: ${_subjects[index]['teacherName'] ?? 'Unknown'}',
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
+            ),
+
+            const Divider(),
+
+            const Text("Active Sessions", style: TextStyle(fontWeight: FontWeight.bold)),
+            Expanded(
+              child: _activeSessions.isEmpty
+                  ? const Center(child: Text('No active sessions'))
+                  : ListView.builder(
+                      itemCount: _activeSessions.length,
+                      itemBuilder: (context, index) {
+                        final session = _activeSessions[index];
+                        return ListTile(
+                          title: Text("Subject ID: ${session.subjectId}"),
+                          subtitle: Text(
+                            "Start: ${session.startTime} | Duration: ${session.duration} min",
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
