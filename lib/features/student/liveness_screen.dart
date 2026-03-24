@@ -47,6 +47,7 @@ class _LivenessScreenState extends State<LivenessScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context); // Close dialog
+              print("DEBUG: Liveness returning FALSE");
               Navigator.pop(context, false); // Return failure to dashboard
             },
             child: const Text("Cancel"),
@@ -86,7 +87,8 @@ class _LivenessScreenState extends State<LivenessScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              Navigator.pop(context, "PARTIAL_SUCCESS");
+              print("DEBUG: Liveness returning FALSE (Bypass not allowed in Module 8)");
+              Navigator.pop(context, false);
             },
             child: const Text("Proceed Anyway"),
           ),
@@ -113,8 +115,9 @@ class _LivenessScreenState extends State<LivenessScreen> {
           alwaysIncludeBlink: true,
         ),
         onLivenessCompleted: (String sessionId, bool isSuccessful, Map<String, dynamic>? metadata) {
-          print("Liveness Result: $isSuccessful");
+          print("DEBUG: Liveness Completed - isSuccessful: $isSuccessful");
           if (isSuccessful) {
+            print("DEBUG: Liveness returning TRUE");
             Navigator.pop(context, true);
           } else {
             _handleFailure();
