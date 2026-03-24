@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/firestore_service.dart';
 import '../../models/session_model.dart';
+import 'liveness_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -13,6 +14,12 @@ class _StudentDashboardState extends State<StudentDashboard> {
   final FirestoreService _firestoreService = FirestoreService();
   List<Map<String, dynamic>> _subjects = [];
   List<SessionModel> _activeSessions = [];
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +51,31 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 });
               },
               child: const Text('Load Active Sessions'),
+            ),
+
+            const SizedBox(height: 10),
+
+            // 🔹 Start Verification Button (Liveness Verification)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LivenessScreen()),
+                );
+                
+                if (result == true) {
+                  _showSnackBar("Liveness Verification Successful");
+                  // Proceed to GPS logic in next module
+                } else if (result == "PARTIAL_SUCCESS") {
+                  _showSnackBar("Verification completed with manual bypass");
+                  print("Liveness partially skipped");
+                  // Proceed to GPS logic with a warning
+                } else {
+                  _showSnackBar("Liveness Verification Failed");
+                }
+              },
+              child: const Text('Start Liveness Verification'),
             ),
 
             const SizedBox(height: 20),
