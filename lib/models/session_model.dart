@@ -7,6 +7,7 @@ class SessionModel {
   final DateTime startTime;
   final int duration; // in minutes
   final bool isActive;
+  final bool isCancelled;
 
   SessionModel({
     required this.id,
@@ -15,6 +16,7 @@ class SessionModel {
     required this.startTime,
     required this.duration,
     required this.isActive,
+    required this.isCancelled,
   });
 
   Map<String, dynamic> toMap() {
@@ -24,6 +26,7 @@ class SessionModel {
       'startTime': Timestamp.fromDate(startTime),
       'duration': duration,
       'isActive': isActive,
+      'isCancelled': isCancelled,
     };
   }
 
@@ -35,6 +38,7 @@ class SessionModel {
       startTime: (map['startTime'] as Timestamp).toDate(),
       duration: map['duration'] ?? 0,
       isActive: map['isActive'] ?? false,
+      isCancelled: map['isCancelled'] ?? false,
     );
   }
 }

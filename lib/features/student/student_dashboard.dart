@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../models/session_model.dart';
@@ -33,15 +34,88 @@ class _StudentDashboardState extends State<StudentDashboard> {
     });
 
     try {
+      print("DEBUG: Fetching active sessions");
+      final sessions = await _firestoreService.getActiveSessions();
+
+      if (sessions.isEmpty) {
+        print("DEBUG: No active session found");
+        _showSnackBar("No active session found");
+        setState(() {
+          isProcessing = false;
+        });
+        return;
+      }
+
+      if (sessions.length == 1) {
+        print("DEBUG: Single session auto-selected");
+        await _processSession(sessions.first);
+      } else {
+        print("DEBUG: Multiple sessions found");
+        setState(() {
+          isProcessing = false;
+        });
+        final selectedSession = await _showSessionSelectionDialog(sessions);
+        if (selectedSession != null) {
+          await _processSession(selectedSession);
+        }
+      }
+    } catch (e) {
+      print("DEBUG: Error in verification start: $e");
+      _showSnackBar("Verification Error");
+      setState(() {
+        isProcessing = false;
+      });
+    }
+  }
+
+  Future<SessionModel?> _showSessionSelectionDialog(List<SessionModel> sessions) async {
+    return showDialog<SessionModel>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("Select Session"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: sessions.length,
+            itemBuilder: (context, index) {
+              final session = sessions[index];
+              return ListTile(
+                title: Text("Subject: ${session.subjectId}"),
+                subtitle: Text("ID: ${session.id}"),
+                onTap: () => Navigator.pop(context, session),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _processSession(SessionModel session) async {
+    setState(() {
+      isProcessing = true;
+    });
+
+    try {
+      print("DEBUG: Processing session ${session.id}");
+
       // 1. LIVENESS
-      final result = await Navigator.push(
+      final livenessResult = await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LivenessScreen()),
       );
 
-      print("DEBUG: Liveness result = $result");
+      print("DEBUG: Liveness result = $livenessResult");
 
-      if (result != true) {
+      if (livenessResult != true) {
         print("DEBUG: Liveness failed or not completed");
         _showSnackBar("Liveness Failed");
         return;
@@ -59,11 +133,33 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
       print("DEBUG: Location = ${location.latitude}, ${location.longitude}");
 
-      // 3. SUCCESS
-      _showSnackBar("Verification Complete");
+      // 3. ATTENDANCE
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        _showSnackBar("User not logged in");
+        return;
+      }
+
+      print("DEBUG: Marking attendance for session ${session.id}");
+      final result = await _firestoreService.markAttendance(
+        studentId: currentUser.uid,
+        subjectId: session.subjectId,
+        sessionId: session.id,
+      );
+
+      print("DEBUG: Attendance result = $result");
+
+      if (result == "SUCCESS") {
+        _showSnackBar("Attendance Marked Successful");
+      } else if (result == "ALREADY_MARKED") {
+        _showSnackBar("Already Marked");
+      } else {
+        _showSnackBar("Attendance Failed");
+      }
+
     } catch (e) {
-      print("DEBUG: Error during verification: $e");
-      _showSnackBar("Verification Error");
+      print("DEBUG: Error processing session: $e");
+      _showSnackBar("Processing Error");
     } finally {
       if (mounted) {
         setState(() {
@@ -107,7 +203,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
             const SizedBox(height: 10),
 
-            // 🔹 Start Verification Button (Module 8 Integrated Production Flow)
+            // 🔹 Start Verification Button (Module 9.5 Session Selection)
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue, 

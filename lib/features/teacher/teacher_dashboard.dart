@@ -15,20 +15,27 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   final TextEditingController _durationController = TextEditingController();
   
   List<Map<String, dynamic>> _mySubjects = [];
+  List<Map<String, dynamic>> _mySessions = [];
   String? _selectedSubjectId;
 
   @override
   void initState() {
     super.initState();
-    _loadSubjects();
+    _refreshData();
   }
 
-  Future<void> _loadSubjects() async {
+  Future<void> _refreshData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final subjects = await _firestoreService.getSubjectsByTeacher(user.uid);
+      final sessions = await _firestoreService.getSessionsByTeacher(user.uid);
       setState(() {
         _mySubjects = subjects;
+        _mySessions = sessions;
+        // Reset selected subject if it's no longer in the list (e.g. deleted)
+        if (_selectedSubjectId != null && !_mySubjects.any((s) => s['id'] == _selectedSubjectId)) {
+          _selectedSubjectId = null;
+        }
       });
     }
   }
@@ -36,6 +43,26 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _confirmAction(String title, String content, VoidCallback onConfirm) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              onConfirm();
+            }, 
+            child: const Text("Confirm")
+          ),
+        ],
+      ),
     );
   }
 
@@ -65,11 +92,30 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   );
                   _subjectController.clear();
                   _showSnackBar("Subject Created");
-                  _loadSubjects(); // Refresh list
+                  _refreshData();
                 }
               },
               child: const Text('Create Subject'),
             ),
+            
+            const Divider(height: 40),
+            const Text('Your Subjects', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ..._mySubjects.map((subject) => ListTile(
+              title: Text(subject['name'] ?? 'No Name'),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _confirmAction(
+                  "Delete Subject", 
+                  "Are you sure you want to delete this subject?",
+                  () async {
+                    await _firestoreService.deleteSubject(subject['id']);
+                    _showSnackBar("Subject Deleted");
+                    _refreshData();
+                  }
+                ),
+              ),
+            )),
+
             const Divider(height: 40),
             const Text('Start Attendance Session', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             DropdownButton<String>(
@@ -79,7 +125,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
               items: _mySubjects.map((subject) {
                 return DropdownMenuItem<String>(
                   value: subject['id'],
-                  child: Text(subject['name']),
+                  child: Text(subject['name'] ?? 'No Name'),
                 );
               }).toList(),
               onChanged: (value) {
@@ -105,12 +151,38 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   );
                   _durationController.clear();
                   _showSnackBar("Session Started");
+                  _refreshData();
                 } else {
                   _showSnackBar("Please select a subject and enter duration");
                 }
               },
               child: const Text('Start Session'),
             ),
+
+            const Divider(height: 40),
+            const Text('Session History', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ..._mySessions.map((session) {
+              final bool isActive = session['isActive'] ?? false;
+              final bool isCancelled = session['isCancelled'] ?? false;
+              final bool canCancel = isActive && !isCancelled;
+              
+              return ListTile(
+                title: Text("Subject ID: ${session['subjectId']}"),
+                subtitle: Text("Status: ${isCancelled ? 'Cancelled' : isActive ? 'Active' : 'Expired'}"),
+                trailing: canCancel ? IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.orange),
+                  onPressed: () => _confirmAction(
+                    "Cancel Session", 
+                    "Are you sure you want to cancel this active session?",
+                    () async {
+                      await _firestoreService.cancelSession(session['id']);
+                      _showSnackBar("Session Cancelled");
+                      _refreshData();
+                    }
+                  ),
+                ) : null,
+              );
+            }),
           ],
         ),
       ),

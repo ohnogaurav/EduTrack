@@ -50,6 +50,7 @@ class FirestoreService {
         'teacherId': teacherId,
         'teacherName': teacherName,
         'createdAt': FieldValue.serverTimestamp(),
+        'isDeleted': false,
       });
     } catch (e) {
       print("FIRESTORE ERROR: $e");
@@ -58,7 +59,10 @@ class FirestoreService {
 
   Future<List<Map<String, dynamic>>> getAllSubjects() async {
     try {
-      QuerySnapshot snapshot = await _db.collection('subjects').get();
+      QuerySnapshot snapshot = await _db
+          .collection('subjects')
+          .where('isDeleted', isEqualTo: false)
+          .get();
       return snapshot.docs.map((doc) {
         var data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
@@ -75,6 +79,7 @@ class FirestoreService {
       QuerySnapshot snapshot = await _db
           .collection('subjects')
           .where('teacherId', isEqualTo: teacherId)
+          .where('isDeleted', isEqualTo: false)
           .get();
       return snapshot.docs.map((doc) {
         var data = doc.data() as Map<String, dynamic>;
@@ -87,6 +92,16 @@ class FirestoreService {
     }
   }
 
+  Future<void> deleteSubject(String subjectId) async {
+    try {
+      await _db.collection('subjects').doc(subjectId).update({
+        'isDeleted': true,
+      });
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+    }
+  }
+
   Future<void> createSession(String subjectId, String teacherId, int duration) async {
     try {
       await _db.collection('sessions').add({
@@ -95,6 +110,7 @@ class FirestoreService {
         'duration': duration,
         'startTime': FieldValue.serverTimestamp(),
         'isActive': true,
+        'isCancelled': false,
       });
     } catch (e) {
       print("FIRESTORE ERROR: $e");
@@ -106,6 +122,7 @@ class FirestoreService {
       QuerySnapshot snapshot = await _db
           .collection('sessions')
           .where('isActive', isEqualTo: true)
+          .where('isCancelled', isEqualTo: false)
           .get();
 
       List<SessionModel> sessions = snapshot.docs.map((doc) {
@@ -122,6 +139,66 @@ class FirestoreService {
     } catch (e) {
       print("FIRESTORE ERROR: $e");
       return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getSessionsByTeacher(String teacherId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('sessions')
+          .where('teacherId', isEqualTo: teacherId)
+          .get();
+      return snapshot.docs.map((doc) {
+        var data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  Future<void> cancelSession(String sessionId) async {
+    try {
+      await _db.collection('sessions').doc(sessionId).update({
+        'isCancelled': true,
+        'isActive': false,
+      });
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+    }
+  }
+
+  Future<String> markAttendance({
+    required String studentId,
+    required String subjectId,
+    required String sessionId,
+  }) async {
+    try {
+      // 1. Check for duplicate
+      QuerySnapshot duplicate = await _db
+          .collection('attendance')
+          .where('studentId', isEqualTo: studentId)
+          .where('sessionId', isEqualTo: sessionId)
+          .get();
+
+      if (duplicate.docs.isNotEmpty) {
+        return "ALREADY_MARKED";
+      }
+
+      // 2. Create attendance
+      await _db.collection('attendance').add({
+        'studentId': studentId,
+        'subjectId': subjectId,
+        'sessionId': sessionId,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      return "SUCCESS";
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return "ERROR";
     }
   }
 }
