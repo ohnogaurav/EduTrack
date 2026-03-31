@@ -201,4 +201,34 @@ class FirestoreService {
       return "ERROR";
     }
   }
+
+  Future<List<Map<String, dynamic>>> getAttendanceBySession(String sessionId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('attendance')
+          .where('sessionId', isEqualTo: sessionId)
+          .get();
+      return snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAllStudents() async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('users')
+          .where('role', isEqualTo: 'student')
+          .get();
+      return snapshot.docs.map((doc) {
+        var data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
 }

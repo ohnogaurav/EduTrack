@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/firestore_service.dart';
+import 'subject_detail_screen.dart';
 
 class TeacherDashboard extends StatefulWidget {
   const TeacherDashboard({super.key});
@@ -15,7 +16,6 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   final TextEditingController _durationController = TextEditingController();
   
   List<Map<String, dynamic>> _mySubjects = [];
-  List<Map<String, dynamic>> _mySessions = [];
   String? _selectedSubjectId;
 
   @override
@@ -28,11 +28,8 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final subjects = await _firestoreService.getSubjectsByTeacher(user.uid);
-      final sessions = await _firestoreService.getSessionsByTeacher(user.uid);
       setState(() {
         _mySubjects = subjects;
-        _mySessions = sessions;
-        // Reset selected subject if it's no longer in the list (e.g. deleted)
         if (_selectedSubjectId != null && !_mySubjects.any((s) => s['id'] == _selectedSubjectId)) {
           _selectedSubjectId = null;
         }
@@ -99,7 +96,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
             ),
             
             const Divider(height: 40),
-            const Text('Your Subjects', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Your Subjects (Tap for details)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ..._mySubjects.map((subject) => ListTile(
               title: Text(subject['name'] ?? 'No Name'),
               trailing: IconButton(
@@ -114,6 +111,12 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   }
                 ),
               ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => SubjectDetailScreen(subject: subject)),
+                );
+              },
             )),
 
             const Divider(height: 40),
@@ -158,31 +161,6 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
               },
               child: const Text('Start Session'),
             ),
-
-            const Divider(height: 40),
-            const Text('Session History', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ..._mySessions.map((session) {
-              final bool isActive = session['isActive'] ?? false;
-              final bool isCancelled = session['isCancelled'] ?? false;
-              final bool canCancel = isActive && !isCancelled;
-              
-              return ListTile(
-                title: Text("Subject ID: ${session['subjectId']}"),
-                subtitle: Text("Status: ${isCancelled ? 'Cancelled' : isActive ? 'Active' : 'Expired'}"),
-                trailing: canCancel ? IconButton(
-                  icon: const Icon(Icons.cancel, color: Colors.orange),
-                  onPressed: () => _confirmAction(
-                    "Cancel Session", 
-                    "Are you sure you want to cancel this active session?",
-                    () async {
-                      await _firestoreService.cancelSession(session['id']);
-                      _showSnackBar("Session Cancelled");
-                      _refreshData();
-                    }
-                  ),
-                ) : null,
-              );
-            }),
           ],
         ),
       ),
