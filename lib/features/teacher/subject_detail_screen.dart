@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../services/firestore_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../models/user_model.dart';
+import '../../models/attendance_model.dart';
+import '../../models/session_model.dart';
 
 class SubjectDetailScreen extends StatefulWidget {
   final Map<String, dynamic> subject;
@@ -13,50 +16,47 @@ class SubjectDetailScreen extends StatefulWidget {
 class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   bool _isLoading = true;
-  Map<String, dynamic>? _latestSession;
-  List<String> _presentStudentNames = [];
-  int _totalStudents = 0;
+  
+  List<UserModel> _enrolledStudents = [];
+  List<SessionModel> _sessions = [];
+  Map<String, int> _sessionAttendanceCount = {};
+  
+  int _totalAttendanceCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadSubjectData();
+    _loadSubjectInsights();
   }
 
-  Future<void> _loadSubjectData() async {
+  Future<void> _loadSubjectInsights() async {
     try {
-      final sessions = await _firestoreService.getSessionsByTeacher(widget.subject['teacherId']);
+      final String subjectId = widget.subject['id'];
       
-      // Filter sessions for THIS subject and sort by startTime
-      final subjectSessions = sessions.where((s) => s['subjectId'] == widget.subject['id']).toList();
-      
-      if (subjectSessions.isNotEmpty) {
-        subjectSessions.sort((a, b) {
-          Timestamp tA = a['startTime'];
-          Timestamp tB = b['startTime'];
-          return tB.compareTo(tA);
-        });
+      // 1. Fetch Enrolled Students
+      final studentIds = await _firestoreService.getEnrolledStudentIds(subjectId);
+      _enrolledStudents = await _firestoreService.getStudentsByIds(studentIds);
 
-        _latestSession = subjectSessions.first;
-        
-        final attendanceList = await _firestoreService.getAttendanceBySession(_latestSession!['id']);
-        final allStudents = await _firestoreService.getAllStudents();
-        _totalStudents = allStudents.length;
+      // 2. Fetch All Sessions for this subject
+      _sessions = await _firestoreService.getSessionsBySubject(subjectId);
+      _sessions.sort((a, b) => b.startTime.compareTo(a.startTime));
 
-        final Map<String, String> studentNameMap = {
-          for (var student in allStudents) student['id']: student['name'] ?? 'Unknown Student'
-        };
+      // 3. Fetch All Attendance for this subject to calculate counts
+      final allAttendance = await _firestoreService.getAttendanceBySubject(subjectId);
+      _totalAttendanceCount = allAttendance.length;
 
-        _presentStudentNames = attendanceList.map((att) {
-          return studentNameMap[att['studentId']] ?? "Unknown Student";
-        }).toList();
+      // Map session IDs to their attendance counts
+      Map<String, int> counts = {};
+      for (var session in _sessions) {
+        counts[session.id] = allAttendance.where((a) => a.sessionId == session.id).length;
       }
+      _sessionAttendanceCount = counts;
 
       setState(() {
         _isLoading = false;
       });
     } catch (e) {
-      print("Error loading subject details: $e");
+      print("Error loading subject insights: $e");
       setState(() {
         _isLoading = false;
       });
@@ -65,45 +65,103 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final String joinCode = widget.subject['joinCode'] ?? 'No Code';
+    
+    // Calculate Average Attendance %
+    double avgAttendance = 0;
+    if (_enrolledStudents.isNotEmpty && _sessions.isNotEmpty) {
+      int totalPossible = _enrolledStudents.length * _sessions.length;
+      avgAttendance = (_totalAttendanceCount / totalPossible) * 100;
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text(widget.subject['name'])),
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator())
-        : Padding(
+        : SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Recent Session", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 10),
-                if (_latestSession == null)
-                  const Text("No sessions yet")
-                else ...[
-                  Text("Status: ${_latestSession!['isCancelled'] ? 'Cancelled' : (_latestSession!['isActive'] ? 'Active' : 'Completed')}",
-                    style: TextStyle(
-                      color: _latestSession!['isCancelled'] ? Colors.red : (_latestSession!['isActive'] ? Colors.green : Colors.grey),
-                      fontWeight: FontWeight.bold
+                // SUMMARY SECTION
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text("Join Code:", style: TextStyle(fontWeight: FontWeight.bold)),
+                            SelectableText(joinCode, style: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const Divider(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildStatItem("Students", _enrolledStudents.length.toString()),
+                            _buildStatItem("Sessions", _sessions.length.toString()),
+                            _buildStatItem("Avg. Attnd.", "${avgAttendance.toStringAsFixed(1)}%"),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  Text("Attendance: ${_presentStudentNames.length} / $_totalStudents", style: const TextStyle(fontSize: 18)),
-                  const Divider(),
-                  const Text("Present Students:", style: TextStyle(fontWeight: FontWeight.bold)),
-                  Expanded(
-                    child: _presentStudentNames.isEmpty
-                      ? const Center(child: Text("No attendance yet"))
-                      : ListView.builder(
-                          itemCount: _presentStudentNames.length,
-                          itemBuilder: (context, index) => ListTile(
-                            leading: const Icon(Icons.check_circle, color: Colors.green),
-                            title: Text(_presentStudentNames[index]),
-                          ),
-                        ),
+                ),
+
+                const SizedBox(height: 20),
+                const Text("Enrolled Students", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                if (_enrolledStudents.isEmpty)
+                  const Text("No students joined yet")
+                else
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _enrolledStudents.length,
+                      itemBuilder: (context, index) => ListTile(
+                        leading: const Icon(Icons.person),
+                        title: Text(_enrolledStudents[index].name),
+                        dense: true,
+                      ),
+                    ),
                   ),
-                ]
+
+                const Divider(height: 40),
+                const Text("Session History", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                if (_sessions.isEmpty)
+                  const Text("No sessions conducted yet")
+                else
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _sessions.length,
+                    itemBuilder: (context, index) {
+                      final session = _sessions[index];
+                      final count = _sessionAttendanceCount[session.id] ?? 0;
+                      return ListTile(
+                        title: Text("Session on ${session.startTime.day}/${session.startTime.month}"),
+                        subtitle: Text(session.isActive ? "Active" : "Completed"),
+                        trailing: Text("Present: $count / ${_enrolledStudents.length}", 
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      );
+                    },
+                  ),
               ],
             ),
           ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value) {
+    return Column(
+      children: [
+        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue)),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
     );
   }
 }

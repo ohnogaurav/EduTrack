@@ -3,6 +3,7 @@ import 'dart:math';
 import '../models/session_model.dart';
 import '../models/attendance_model.dart';
 import '../models/subject_model.dart';
+import '../models/user_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -361,6 +362,31 @@ class FirestoreService {
       return snapshot.docs.isNotEmpty;
     } catch (e) {
       return false;
+    }
+  }
+
+  // MODULE 12: New Insights methods
+  Future<List<String>> getEnrolledStudentIds(String subjectId) async {
+    return getStudentsBySubject(subjectId);
+  }
+
+  Future<List<UserModel>> getStudentsByIds(List<String> ids) async {
+    if (ids.isEmpty) return [];
+    
+    try {
+      // Fetch users in chunks if many, but for now assuming small class size
+      // whereIn has a limit of 10-30 in Firestore
+      List<UserModel> students = [];
+      for (var id in ids) {
+        DocumentSnapshot doc = await _db.collection('users').doc(id).get();
+        if (doc.exists) {
+          students.add(UserModel.fromMap(doc.data() as Map<String, dynamic>, doc.id));
+        }
+      }
+      return students;
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
     }
   }
 }
