@@ -15,6 +15,8 @@ class StudentDashboard extends StatefulWidget {
 class _StudentDashboardState extends State<StudentDashboard> {
   final FirestoreService _firestoreService = FirestoreService();
   final LocationService _locationService = LocationService();
+  final TextEditingController _joinCodeController = TextEditingController();
+  
   List<Map<String, dynamic>> _subjects = [];
   List<SessionModel> _activeSessions = [];
   Map<String, Map<String, dynamic>> _analytics = {};
@@ -37,7 +39,11 @@ class _StudentDashboardState extends State<StudentDashboard> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final subjects = await _firestoreService.getAllSubjects();
+    final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
+    final allSubjects = await _firestoreService.getAllSubjects();
+    
+    final subjects = allSubjects.where((s) => enrolledSubjectIds.contains(s['id'])).toList();
+    
     final activeSessions = await _firestoreService.getActiveSessions();
     final attendance = await _firestoreService.getAttendanceByStudent(user.uid);
 
@@ -59,9 +65,44 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
     setState(() {
       _subjects = subjects;
-      _activeSessions = activeSessions;
+      _activeSessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
       _analytics = stats;
     });
+  }
+
+  Future<void> _joinSubject() async {
+    final code = _joinCodeController.text.trim();
+    if (code.isEmpty) {
+      _showSnackBar("Please enter a join code");
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    setState(() => isProcessing = true);
+
+    try {
+      final subject = await _firestoreService.getSubjectByJoinCode(code);
+      if (subject == null) {
+        _showSnackBar("Invalid Join Code");
+      } else {
+        final result = await _firestoreService.enrollStudent(user.uid, subject.id);
+        if (result == "SUCCESS") {
+          _showSnackBar("Joined ${subject.name} successfully");
+          _joinCodeController.clear();
+          _loadAllData();
+        } else if (result == "ALREADY_ENROLLED") {
+          _showSnackBar("You are already joined in this subject");
+        } else {
+          _showSnackBar("Failed to join subject");
+        }
+      }
+    } catch (e) {
+      _showSnackBar("Error joining subject");
+    } finally {
+      setState(() => isProcessing = false);
+    }
   }
 
   Future<void> _startVerification() async {
@@ -72,10 +113,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
     });
 
     try {
-      final sessions = await _firestoreService.getActiveSessions();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
+      final activeSessions = await _firestoreService.getActiveSessions();
+      
+      final sessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
 
       if (sessions.isEmpty) {
-        _showSnackBar("No active session found");
+        _showSnackBar("No active enrolled session found");
         setState(() {
           isProcessing = false;
         });
@@ -164,9 +211,11 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
       if (result == "SUCCESS") {
         _showSnackBar("Attendance Marked Successful");
-        _loadAllData(); // Refresh analytics
+        _loadAllData();
       } else if (result == "ALREADY_MARKED") {
         _showSnackBar("Already Marked");
+      } else if (result == "NOT_ENROLLED") {
+        _showSnackBar("You are not enrolled in this subject");
       } else {
         _showSnackBar("Attendance Failed");
       }
@@ -189,10 +238,32 @@ class _StudentDashboardState extends State<StudentDashboard> {
           IconButton(onPressed: _loadAllData, icon: const Icon(Icons.refresh))
         ],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // 🔹 Join Subject Section
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _joinCodeController,
+                    decoration: const InputDecoration(
+                      labelText: 'Enter Join Code',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: isProcessing ? null : _joinSubject,
+                  child: const Text("Join"),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue, 
@@ -208,45 +279,59 @@ class _StudentDashboardState extends State<StudentDashboard> {
             const SizedBox(height: 20),
             const Text("Your Attendance Analytics", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            Expanded(
-              child: _subjects.isEmpty
-                  ? const Center(child: Text('No subjects available'))
-                  : ListView.builder(
-                      itemCount: _subjects.length,
-                      itemBuilder: (context, index) {
-                        final subject = _subjects[index];
-                        final stats = _analytics[subject['id']];
-                        final statsText = stats != null 
-                            ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" 
-                            : "Loading...";
-                        return ListTile(
-                          title: Text(subject['name'] ?? 'No Name'),
-                          subtitle: Text('Teacher: ${subject['teacherName'] ?? 'Unknown'}'),
-                          trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                        );
-                      },
-                    ),
-            ),
+            
+            _subjects.isEmpty
+                ? const Center(child: Padding(
+                    padding: EdgeInsets.all(20.0),
+                    child: Text('No enrolled subjects available'),
+                  ))
+                : ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _subjects.length,
+                    itemBuilder: (context, index) {
+                      final subject = _subjects[index];
+                      final stats = _analytics[subject['id']];
+                      final statsText = stats != null 
+                          ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" 
+                          : "Loading...";
+                      return ListTile(
+                        title: Text(subject['name'] ?? 'No Name'),
+                        subtitle: Text('Teacher: ${subject['teacherName'] ?? 'Unknown'}'),
+                        trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                      );
+                    },
+                  ),
 
             const Divider(),
             const Text("Active Sessions", style: TextStyle(fontWeight: FontWeight.bold)),
-            Expanded(
-              child: _activeSessions.isEmpty
-                  ? const Center(child: Text('No active sessions'))
-                  : ListView.builder(
-                      itemCount: _activeSessions.length,
-                      itemBuilder: (context, index) {
-                        final session = _activeSessions[index];
-                        return ListTile(
-                          title: Text("Subject ID: ${session.subjectId}"),
-                          subtitle: Text("Start: ${session.startTime} | Duration: ${session.duration} min"),
-                        );
-                      },
-                    ),
-            ),
+            
+            _activeSessions.isEmpty
+                ? const Center(child: Padding(
+                    padding: EdgeInsets.all(20.0),
+                    child: Text('No active enrolled sessions'),
+                  ))
+                : ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _activeSessions.length,
+                    itemBuilder: (context, index) {
+                      final session = _activeSessions[index];
+                      return ListTile(
+                        title: Text("Subject ID: ${session.subjectId}"),
+                        subtitle: Text("Start: ${session.startTime} | Duration: ${session.duration} min"),
+                      );
+                    },
+                  ),
           ],
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _joinCodeController.dispose();
+    super.dispose();
   }
 }

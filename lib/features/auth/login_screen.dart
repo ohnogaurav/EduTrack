@@ -24,11 +24,39 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _handleLogin(String email, String password) async {
+    final result = await _authService.login(email, password);
+    
+    if (result['error'] != null) {
+      _showSnackBar(result['error']);
+    } else if (result['user'] != null) {
+      final String? role = await _firestoreService.getUserRole(result['user'].uid);
+      
+      if (role != widget.role.toLowerCase()) {
+        _showSnackBar("Unauthorized: You are not a ${widget.role}");
+      } else {
+        _showSnackBar("Login Successful");
+        
+        if (role == 'student') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const StudentDashboard()),
+          );
+        } else if (role == 'teacher') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherDashboard()),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Login as ${widget.role}')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -44,37 +72,24 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: () async {
-                final result = await _authService.login(
-                  _emailController.text,
-                  _passwordController.text,
-                );
-                
-                if (result['error'] != null) {
-                  _showSnackBar(result['error']);
-                } else if (result['user'] != null) {
-                  final String? role = await _firestoreService.getUserRole(result['user'].uid);
-                  
-                  if (role != widget.role.toLowerCase()) {
-                    _showSnackBar("Unauthorized: You are not a ${widget.role}");
-                  } else {
-                    _showSnackBar("Login Successful");
-                    
-                    if (role == 'student') {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const StudentDashboard()),
-                      );
-                    } else if (role == 'teacher') {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const TeacherDashboard()),
-                      );
-                    }
-                  }
-                }
-              },
+              onPressed: () => _handleLogin(_emailController.text, _passwordController.text),
               child: const Text('Login'),
+            ),
+            
+            const SizedBox(height: 40),
+            const Divider(),
+            const Text("DEV MODE", style: TextStyle(fontSize: 10, color: Colors.grey)),
+            const SizedBox(height: 10),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[200]),
+              onPressed: () => _handleLogin("student@test.com", "123456"),
+              child: const Text("Login as Test Student"),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[200]),
+              onPressed: () => _handleLogin("teacher@test.com", "123456"),
+              child: const Text("Login as Test Teacher"),
             ),
           ],
         ),

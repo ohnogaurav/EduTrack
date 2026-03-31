@@ -97,27 +97,30 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
             
             const Divider(height: 40),
             const Text('Your Subjects (Tap for details)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ..._mySubjects.map((subject) => ListTile(
-              title: Text(subject['name'] ?? 'No Name'),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _confirmAction(
-                  "Delete Subject", 
-                  "Are you sure you want to delete this subject?",
-                  () async {
-                    await _firestoreService.deleteSubject(subject['id']);
-                    _showSnackBar("Subject Deleted");
-                    _refreshData();
-                  }
+            ..._mySubjects.map((subject) {
+              final String joinCode = subject['joinCode'] ?? 'No Code';
+              return ListTile(
+                title: Text("${subject['name'] ?? 'No Name'} ($joinCode)"),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _confirmAction(
+                    "Delete Subject", 
+                    "Are you sure you want to delete this subject?",
+                    () async {
+                      await _firestoreService.deleteSubject(subject['id']);
+                      _showSnackBar("Subject Deleted");
+                      _refreshData();
+                    }
+                  ),
                 ),
-              ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => SubjectDetailScreen(subject: subject)),
-                );
-              },
-            )),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => SubjectDetailScreen(subject: subject)),
+                  );
+                },
+              );
+            }),
 
             const Divider(height: 40),
             const Text('Start Attendance Session', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),

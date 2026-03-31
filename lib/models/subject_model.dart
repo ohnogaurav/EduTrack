@@ -6,6 +6,7 @@ class SubjectModel {
   final String teacherId;
   final String teacherName;
   final bool isDeleted;
+  final String joinCode;
 
   SubjectModel({
     required this.id,
@@ -13,6 +14,7 @@ class SubjectModel {
     required this.teacherId,
     required this.teacherName,
     required this.isDeleted,
+    required this.joinCode,
   });
 
   Map<String, dynamic> toMap() {
@@ -21,6 +23,7 @@ class SubjectModel {
       'teacherId': teacherId,
       'teacherName': teacherName,
       'isDeleted': isDeleted,
+      'joinCode': joinCode,
     };
   }
 
@@ -31,6 +34,7 @@ class SubjectModel {
       teacherId: map['teacherId'] ?? '',
       teacherName: map['teacherName'] ?? '',
       isDeleted: map['isDeleted'] ?? false,
+      joinCode: map['joinCode'] ?? '',
     );
   }
 }

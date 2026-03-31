@@ -1,9 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:math';
 import '../models/session_model.dart';
 import '../models/attendance_model.dart';
+import '../models/subject_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  String generateJoinCode() {
+    return (Random().nextInt(900000) + 100000).toString();
+  }
 
   Future<void> createUser(String userId, String name, String email, String role) async {
     try {
@@ -46,15 +52,35 @@ class FirestoreService {
 
   Future<void> createSubject(String name, String teacherId, String teacherName) async {
     try {
+      final joinCode = generateJoinCode();
       await _db.collection('subjects').add({
         'name': name,
         'teacherId': teacherId,
         'teacherName': teacherName,
         'createdAt': FieldValue.serverTimestamp(),
         'isDeleted': false,
+        'joinCode': joinCode,
       });
     } catch (e) {
       print("FIRESTORE ERROR: $e");
+    }
+  }
+
+  Future<SubjectModel?> getSubjectByJoinCode(String code) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('subjects')
+          .where('joinCode', isEqualTo: code)
+          .where('isDeleted', isEqualTo: false)
+          .get();
+      
+      if (snapshot.docs.isNotEmpty) {
+        return SubjectModel.fromMap(snapshot.docs.first.data() as Map<String, dynamic>, snapshot.docs.first.id);
+      }
+      return null;
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return null;
     }
   }
 
@@ -177,7 +203,11 @@ class FirestoreService {
     required String sessionId,
   }) async {
     try {
-      // 1. Check for duplicate
+      final isEnrolled = await isStudentEnrolled(studentId, subjectId);
+      if (!isEnrolled) {
+        return "NOT_ENROLLED";
+      }
+
       QuerySnapshot duplicate = await _db
           .collection('attendance')
           .where('studentId', isEqualTo: studentId)
@@ -188,7 +218,6 @@ class FirestoreService {
         return "ALREADY_MARKED";
       }
 
-      // 2. Create attendance
       await _db.collection('attendance').add({
         'studentId': studentId,
         'subjectId': subjectId,
@@ -276,6 +305,62 @@ class FirestoreService {
     } catch (e) {
       print("FIRESTORE ERROR: $e");
       return [];
+    }
+  }
+
+  Future<String> enrollStudent(String studentId, String subjectId) async {
+    try {
+      final exists = await isStudentEnrolled(studentId, subjectId);
+      if (exists) return "ALREADY_ENROLLED";
+
+      await _db.collection('enrollments').add({
+        'studentId': studentId,
+        'subjectId': subjectId,
+        'enrolledAt': FieldValue.serverTimestamp(),
+      });
+      return "SUCCESS";
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return "ERROR";
+    }
+  }
+
+  Future<List<String>> getStudentsBySubject(String subjectId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('enrollments')
+          .where('subjectId', isEqualTo: subjectId)
+          .get();
+      return snapshot.docs.map((doc) => doc.get('studentId') as String).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  Future<List<String>> getSubjectsByStudent(String studentId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('enrollments')
+          .where('studentId', isEqualTo: studentId)
+          .get();
+      return snapshot.docs.map((doc) => doc.get('subjectId') as String).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  Future<bool> isStudentEnrolled(String studentId, String subjectId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('enrollments')
+          .where('studentId', isEqualTo: studentId)
+          .where('subjectId', isEqualTo: subjectId)
+          .get();
+      return snapshot.docs.isNotEmpty;
+    } catch (e) {
+      return false;
     }
   }
 }
