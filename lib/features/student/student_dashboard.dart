@@ -17,13 +17,51 @@ class _StudentDashboardState extends State<StudentDashboard> {
   final LocationService _locationService = LocationService();
   List<Map<String, dynamic>> _subjects = [];
   List<SessionModel> _activeSessions = [];
+  Map<String, Map<String, dynamic>> _analytics = {};
 
   bool isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAllData();
+  }
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  Future<void> _loadAllData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final subjects = await _firestoreService.getAllSubjects();
+    final activeSessions = await _firestoreService.getActiveSessions();
+    final attendance = await _firestoreService.getAttendanceByStudent(user.uid);
+
+    Map<String, Map<String, dynamic>> stats = {};
+    for (var subject in subjects) {
+      final subjectId = subject['id'];
+      final sessions = await _firestoreService.getSessionsBySubject(subjectId);
+      
+      final totalValidSessions = sessions.length;
+      final attendedCount = attendance.where((a) => a.subjectId == subjectId).length;
+      final percentage = totalValidSessions == 0 ? 0.0 : (attendedCount / totalValidSessions) * 100;
+
+      stats[subjectId] = {
+        'attended': attendedCount,
+        'total': totalValidSessions,
+        'percentage': percentage.toStringAsFixed(1),
+      };
+    }
+
+    setState(() {
+      _subjects = subjects;
+      _activeSessions = activeSessions;
+      _analytics = stats;
+    });
   }
 
   Future<void> _startVerification() async {
@@ -34,11 +72,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
     });
 
     try {
-      print("DEBUG: Fetching active sessions");
       final sessions = await _firestoreService.getActiveSessions();
 
       if (sessions.isEmpty) {
-        print("DEBUG: No active session found");
         _showSnackBar("No active session found");
         setState(() {
           isProcessing = false;
@@ -47,10 +83,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
       }
 
       if (sessions.length == 1) {
-        print("DEBUG: Single session auto-selected");
         await _processSession(sessions.first);
       } else {
-        print("DEBUG: Multiple sessions found");
         setState(() {
           isProcessing = false;
         });
@@ -60,7 +94,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
         }
       }
     } catch (e) {
-      print("DEBUG: Error in verification start: $e");
       _showSnackBar("Verification Error");
       setState(() {
         isProcessing = false;
@@ -82,8 +115,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
             itemBuilder: (context, index) {
               final session = sessions[index];
               return ListTile(
-                title: Text("Subject: ${session.subjectId}"),
-                subtitle: Text("ID: ${session.id}"),
+                title: Text("Subject ID: ${session.subjectId}"),
                 onTap: () => Navigator.pop(context, session),
               );
             },
@@ -105,61 +137,40 @@ class _StudentDashboardState extends State<StudentDashboard> {
     });
 
     try {
-      print("DEBUG: Processing session ${session.id}");
-
-      // 1. LIVENESS
       final livenessResult = await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LivenessScreen()),
       );
 
-      print("DEBUG: Liveness result = $livenessResult");
-
       if (livenessResult != true) {
-        print("DEBUG: Liveness failed or not completed");
         _showSnackBar("Liveness Failed");
         return;
       }
 
-      // 2. GPS
-      print("DEBUG: Calling GPS");
       final location = await _locationService.getCurrentLocation();
-      
       if (location == null) {
-        print("DEBUG: Location not available");
         _showSnackBar("Location not available");
         return;
       }
 
-      print("DEBUG: Location = ${location.latitude}, ${location.longitude}");
-
-      // 3. ATTENDANCE
       final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        _showSnackBar("User not logged in");
-        return;
-      }
+      if (currentUser == null) return;
 
-      print("DEBUG: Marking attendance for session ${session.id}");
       final result = await _firestoreService.markAttendance(
         studentId: currentUser.uid,
         subjectId: session.subjectId,
         sessionId: session.id,
       );
 
-      print("DEBUG: Attendance result = $result");
-
       if (result == "SUCCESS") {
         _showSnackBar("Attendance Marked Successful");
+        _loadAllData(); // Refresh analytics
       } else if (result == "ALREADY_MARKED") {
         _showSnackBar("Already Marked");
       } else {
         _showSnackBar("Attendance Failed");
       }
 
-    } catch (e) {
-      print("DEBUG: Error processing session: $e");
-      _showSnackBar("Processing Error");
     } finally {
       if (mounted) {
         setState(() {
@@ -172,38 +183,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Student Dashboard')),
+      appBar: AppBar(
+        title: const Text('Student Dashboard'),
+        actions: [
+          IconButton(onPressed: _loadAllData, icon: const Icon(Icons.refresh))
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // 🔹 Load Subjects Button
-            ElevatedButton(
-              onPressed: () async {
-                final subjects = await _firestoreService.getAllSubjects();
-                setState(() {
-                  _subjects = subjects;
-                });
-              },
-              child: const Text('Load Subjects'),
-            ),
-
-            const SizedBox(height: 10),
-
-            // 🔹 Load Active Sessions Button
-            ElevatedButton(
-              onPressed: () async {
-                final sessions = await _firestoreService.getActiveSessions();
-                setState(() {
-                  _activeSessions = sessions;
-                });
-              },
-              child: const Text('Load Active Sessions'),
-            ),
-
-            const SizedBox(height: 10),
-
-            // 🔹 Start Verification Button (Module 9.5 Session Selection)
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue, 
@@ -212,35 +201,34 @@ class _StudentDashboardState extends State<StudentDashboard> {
               ),
               onPressed: isProcessing ? null : _startVerification,
               child: isProcessing 
-                ? const SizedBox(
-                    height: 20, 
-                    width: 20, 
-                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                  )
+                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                 : const Text('Start Verification'),
             ),
 
             const SizedBox(height: 20),
-
-            const Text("Available Subjects", style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text("Your Attendance Analytics", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
             Expanded(
               child: _subjects.isEmpty
-                  ? const Center(child: Text('No subjects loaded'))
+                  ? const Center(child: Text('No subjects available'))
                   : ListView.builder(
                       itemCount: _subjects.length,
                       itemBuilder: (context, index) {
+                        final subject = _subjects[index];
+                        final stats = _analytics[subject['id']];
+                        final statsText = stats != null 
+                            ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" 
+                            : "Loading...";
                         return ListTile(
-                          title: Text(_subjects[index]['name'] ?? 'No Name'),
-                          subtitle: Text(
-                            'Teacher: ${_subjects[index]['teacherName'] ?? 'Unknown'}',
-                          ),
+                          title: Text(subject['name'] ?? 'No Name'),
+                          subtitle: Text('Teacher: ${subject['teacherName'] ?? 'Unknown'}'),
+                          trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                         );
                       },
                     ),
             ),
 
             const Divider(),
-
             const Text("Active Sessions", style: TextStyle(fontWeight: FontWeight.bold)),
             Expanded(
               child: _activeSessions.isEmpty
@@ -251,9 +239,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                         final session = _activeSessions[index];
                         return ListTile(
                           title: Text("Subject ID: ${session.subjectId}"),
-                          subtitle: Text(
-                            "Start: ${session.startTime} | Duration: ${session.duration} min",
-                          ),
+                          subtitle: Text("Start: ${session.startTime} | Duration: ${session.duration} min"),
                         );
                       },
                     ),

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/session_model.dart';
+import '../models/attendance_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -225,6 +226,52 @@ class FirestoreService {
         var data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
+      }).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  Future<List<SessionModel>> getSessionsBySubject(String subjectId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('sessions')
+          .where('subjectId', isEqualTo: subjectId)
+          .where('isCancelled', isEqualTo: false)
+          .get();
+      return snapshot.docs.map((doc) {
+        return SessionModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      }).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  Future<List<AttendanceModel>> getAttendanceByStudent(String studentId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('attendance')
+          .where('studentId', isEqualTo: studentId)
+          .get();
+      return snapshot.docs.map((doc) {
+        return AttendanceModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      }).toList();
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  Future<List<AttendanceModel>> getAttendanceBySubject(String subjectId) async {
+    try {
+      QuerySnapshot snapshot = await _db
+          .collection('attendance')
+          .where('subjectId', isEqualTo: subjectId)
+          .get();
+      return snapshot.docs.map((doc) {
+        return AttendanceModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
       }).toList();
     } catch (e) {
       print("FIRESTORE ERROR: $e");
