@@ -8,6 +8,8 @@ class SessionModel {
   final int duration; // in minutes
   final bool isActive;
   final bool isCancelled;
+  final double? latitude;
+  final double? longitude;
 
   SessionModel({
     required this.id,
@@ -17,6 +19,8 @@ class SessionModel {
     required this.duration,
     required this.isActive,
     required this.isCancelled,
+    this.latitude,
+    this.longitude,
   });
 
   Map<String, dynamic> toMap() {
@@ -27,6 +31,8 @@ class SessionModel {
       'duration': duration,
       'isActive': isActive,
       'isCancelled': isCancelled,
+      'latitude': latitude,
+      'longitude': longitude,
     };
   }
 
@@ -39,6 +45,8 @@ class SessionModel {
       duration: map['duration'] ?? 0,
       isActive: map['isActive'] ?? false,
       isCancelled: map['isCancelled'] ?? false,
+      latitude: map['latitude'] != null ? (map['latitude'] as num).toDouble() : null,
+      longitude: map['longitude'] != null ? (map['longitude'] as num).toDouble() : null,
     );
   }
 }

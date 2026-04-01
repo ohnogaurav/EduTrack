@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../models/session_model.dart';
@@ -184,6 +185,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
     });
 
     try {
+      // 1. LIVENESS
       final livenessResult = await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LivenessScreen()),
@@ -194,12 +196,37 @@ class _StudentDashboardState extends State<StudentDashboard> {
         return;
       }
 
+      // 2. GPS
       final location = await _locationService.getCurrentLocation();
       if (location == null) {
         _showSnackBar("Location not available");
         return;
       }
 
+      // MODULE 13: Distance Validation
+      if (session.latitude == null || session.longitude == null) {
+        _showSnackBar("Session location not available");
+        return;
+      }
+
+      final distance = Geolocator.distanceBetween(
+        location.latitude,
+        location.longitude,
+        session.latitude!,
+        session.longitude!,
+      );
+
+      print("DEBUG: Student Location: ${location.latitude}, ${location.longitude}");
+      print("DEBUG: Session Location: ${session.latitude}, ${session.longitude}");
+      print("DEBUG: Distance: $distance meters");
+
+      const double allowedDistance = 20.0; // 20 meters threshold
+      if (distance > allowedDistance) {
+        _showSnackBar("You are not in classroom range");
+        return;
+      }
+
+      // 3. ATTENDANCE
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) return;
 
@@ -242,7 +269,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // 🔹 Join Subject Section
             Row(
               children: [
                 Expanded(

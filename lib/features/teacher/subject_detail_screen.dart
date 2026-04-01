@@ -19,6 +19,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
   
   List<UserModel> _enrolledStudents = [];
   List<SessionModel> _sessions = [];
+  Map<String, int> _studentAttendanceCount = {};
   Map<String, int> _sessionAttendanceCount = {};
   
   int _totalAttendanceCount = 0;
@@ -37,20 +38,27 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
       final studentIds = await _firestoreService.getEnrolledStudentIds(subjectId);
       _enrolledStudents = await _firestoreService.getStudentsByIds(studentIds);
 
-      // 2. Fetch All Sessions for this subject
+      // 2. Fetch All Sessions for this subject (already filtered for isCancelled in service)
       _sessions = await _firestoreService.getSessionsBySubject(subjectId);
       _sessions.sort((a, b) => b.startTime.compareTo(a.startTime));
 
-      // 3. Fetch All Attendance for this subject to calculate counts
+      // 3. Fetch All Attendance for this subject
       final allAttendance = await _firestoreService.getAttendanceBySubject(subjectId);
       _totalAttendanceCount = allAttendance.length;
 
-      // Map session IDs to their attendance counts
-      Map<String, int> counts = {};
-      for (var session in _sessions) {
-        counts[session.id] = allAttendance.where((a) => a.sessionId == session.id).length;
+      // 4. Build Attendance Maps
+      Map<String, int> studentCounts = {};
+      Map<String, int> sessionCounts = {};
+
+      for (var att in allAttendance) {
+        // Count per student
+        studentCounts[att.studentId] = (studentCounts[att.studentId] ?? 0) + 1;
+        // Count per session
+        sessionCounts[att.sessionId] = (sessionCounts[att.sessionId] ?? 0) + 1;
       }
-      _sessionAttendanceCount = counts;
+
+      _studentAttendanceCount = studentCounts;
+      _sessionAttendanceCount = sessionCounts;
 
       setState(() {
         _isLoading = false;
@@ -111,22 +119,37 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                 ),
 
                 const SizedBox(height: 20),
-                const Text("Enrolled Students", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text("Student Performance", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
                 if (_enrolledStudents.isEmpty)
                   const Text("No students joined yet")
                 else
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 200),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: _enrolledStudents.length,
-                      itemBuilder: (context, index) => ListTile(
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _enrolledStudents.length,
+                    itemBuilder: (context, index) {
+                      final student = _enrolledStudents[index];
+                      final attended = _studentAttendanceCount[student.id] ?? 0;
+                      final total = _sessions.length;
+                      final percentage = total == 0 ? 0.0 : (attended / total) * 100;
+                      
+                      Color percentageColor = Colors.black;
+                      if (percentage < 50) percentageColor = Colors.red;
+                      if (percentage > 75) percentageColor = Colors.green;
+
+                      return ListTile(
                         leading: const Icon(Icons.person),
-                        title: Text(_enrolledStudents[index].name),
-                        dense: true,
-                      ),
-                    ),
+                        title: Text(student.name),
+                        trailing: Text(
+                          "$attended / $total (${percentage.toStringAsFixed(1)}%)",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: percentageColor,
+                          ),
+                        ),
+                      );
+                    },
                   ),
 
                 const Divider(height: 40),

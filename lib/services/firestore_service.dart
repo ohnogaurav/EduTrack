@@ -4,9 +4,11 @@ import '../models/session_model.dart';
 import '../models/attendance_model.dart';
 import '../models/subject_model.dart';
 import '../models/user_model.dart';
+import 'location_service.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final LocationService _locationService = LocationService();
 
   String generateJoinCode() {
     return (Random().nextInt(900000) + 100000).toString();
@@ -132,6 +134,12 @@ class FirestoreService {
 
   Future<void> createSession(String subjectId, String teacherId, int duration) async {
     try {
+      // MODULE 13: Capture Teacher Location
+      final location = await _locationService.getCurrentLocation();
+      if (location == null) {
+        throw Exception("Location not available. Cannot start session.");
+      }
+
       await _db.collection('sessions').add({
         'subjectId': subjectId,
         'teacherId': teacherId,
@@ -139,9 +147,12 @@ class FirestoreService {
         'startTime': FieldValue.serverTimestamp(),
         'isActive': true,
         'isCancelled': false,
+        'latitude': location.latitude,
+        'longitude': location.longitude,
       });
     } catch (e) {
       print("FIRESTORE ERROR: $e");
+      rethrow;
     }
   }
 
@@ -365,17 +376,13 @@ class FirestoreService {
     }
   }
 
-  // MODULE 12: New Insights methods
   Future<List<String>> getEnrolledStudentIds(String subjectId) async {
     return getStudentsBySubject(subjectId);
   }
 
   Future<List<UserModel>> getStudentsByIds(List<String> ids) async {
     if (ids.isEmpty) return [];
-    
     try {
-      // Fetch users in chunks if many, but for now assuming small class size
-      // whereIn has a limit of 10-30 in Firestore
       List<UserModel> students = [];
       for (var id in ids) {
         DocumentSnapshot doc = await _db.collection('users').doc(id).get();
