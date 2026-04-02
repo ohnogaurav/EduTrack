@@ -23,7 +23,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
   List<SessionModel> _activeSessions = [];
   Map<String, Map<String, dynamic>> _analytics = {};
 
-  bool isProcessing = false;
+  bool _isLoading = true;
+  bool _isActionProcessing = false;
 
   @override
   void initState() {
@@ -33,46 +34,49 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
 
   Future<void> _loadAllData() async {
+    setState(() => _isLoading = true);
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
-    final allSubjects = await _firestoreService.getAllSubjects();
-    
-    final subjects = allSubjects.where((s) => enrolledSubjectIds.contains(s['id'])).toList();
-    
-    final activeSessions = await _firestoreService.getActiveSessions();
-    final attendance = await _firestoreService.getAttendanceByStudent(user.uid);
+    try {
+      final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
+      final allSubjects = await _firestoreService.getAllSubjects();
+      final subjects = allSubjects.where((s) => enrolledSubjectIds.contains(s['id'])).toList();
+      final activeSessions = await _firestoreService.getActiveSessions();
+      final attendance = await _firestoreService.getAttendanceByStudent(user.uid);
 
-    Map<String, Map<String, dynamic>> stats = {};
-    for (var subject in subjects) {
-      final subjectId = subject['id'];
-      final sessions = await _firestoreService.getSessionsBySubject(subjectId);
-      
-      final totalValidSessions = sessions.length;
-      final attendedCount = attendance.where((a) => a.subjectId == subjectId).length;
-      final percentage = totalValidSessions == 0 ? 0.0 : (attendedCount / totalValidSessions) * 100;
+      Map<String, Map<String, dynamic>> stats = {};
+      for (var subject in subjects) {
+        final subjectId = subject['id'];
+        final sessions = await _firestoreService.getSessionsBySubject(subjectId);
+        final totalValidSessions = sessions.length;
+        final attendedCount = attendance.where((a) => a.subjectId == subjectId).length;
+        final percentage = totalValidSessions == 0 ? 0.0 : (attendedCount / totalValidSessions) * 100;
 
-      stats[subjectId] = {
-        'attended': attendedCount,
-        'total': totalValidSessions,
-        'percentage': percentage.toStringAsFixed(1),
-      };
+        stats[subjectId] = {
+          'attended': attendedCount,
+          'total': totalValidSessions,
+          'percentage': percentage.toStringAsFixed(1),
+        };
+      }
+
+      setState(() {
+        _subjects = subjects;
+        _activeSessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
+        _analytics = stats;
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-
-    setState(() {
-      _subjects = subjects;
-      _activeSessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
-      _analytics = stats;
-    });
   }
 
   Future<void> _joinSubject() async {
+    if (_isActionProcessing) return;
     final code = _joinCodeController.text.trim();
     if (code.isEmpty) {
       _showSnackBar("Please enter a join code");
@@ -82,8 +86,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    setState(() => isProcessing = true);
-
+    setState(() => _isActionProcessing = true);
     try {
       final subject = await _firestoreService.getSubjectByJoinCode(code);
       if (subject == null) {
@@ -95,65 +98,47 @@ class _StudentDashboardState extends State<StudentDashboard> {
           _joinCodeController.clear();
           _loadAllData();
         } else if (result == "ALREADY_ENROLLED") {
-          _showSnackBar("You are already joined in this subject");
-        } else {
-          _showSnackBar("Failed to join subject");
+          _showSnackBar("You are already joined");
         }
       }
-    } catch (e) {
-      _showSnackBar("Error joining subject");
     } finally {
-      setState(() => isProcessing = false);
+      if (mounted) setState(() => _isActionProcessing = false);
     }
   }
 
   Future<void> _startVerification() async {
-    if (isProcessing) return;
-
-    setState(() {
-      isProcessing = true;
-    });
+    if (_isActionProcessing) return;
+    setState(() => _isActionProcessing = true);
 
     try {
+      final activeSessions = await _firestoreService.getActiveSessions();
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-
-      final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
-      final activeSessions = await _firestoreService.getActiveSessions();
       
+      final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
       final sessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
 
       if (sessions.isEmpty) {
-        _showSnackBar("No active enrolled session found");
-        setState(() {
-          isProcessing = false;
-        });
+        _showSnackBar("No active session found");
         return;
       }
 
       if (sessions.length == 1) {
         await _processSession(sessions.first);
       } else {
-        setState(() {
-          isProcessing = false;
-        });
         final selectedSession = await _showSessionSelectionDialog(sessions);
         if (selectedSession != null) {
           await _processSession(selectedSession);
         }
       }
-    } catch (e) {
-      _showSnackBar("Verification Error");
-      setState(() {
-        isProcessing = false;
-      });
+    } finally {
+      if (mounted) setState(() => _isActionProcessing = false);
     }
   }
 
   Future<SessionModel?> _showSessionSelectionDialog(List<SessionModel> sessions) async {
     return showDialog<SessionModel>(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text("Select Session"),
         content: SizedBox(
@@ -170,22 +155,17 @@ class _StudentDashboardState extends State<StudentDashboard> {
             },
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-        ],
       ),
     );
   }
 
   Future<void> _processSession(SessionModel session) async {
-    setState(() {
-      isProcessing = true;
-    });
-
     try {
+      if (session.isExpired) {
+        _showSnackBar("Session expired");
+        return;
+      }
+
       final livenessResult = await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LivenessScreen()),
@@ -198,54 +178,33 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
       final location = await _locationService.getCurrentLocation();
       if (location == null) {
-        _showSnackBar("Location not available");
-        return;
-      }
-
-      if (session.latitude == null || session.longitude == null) {
-        _showSnackBar("Session location not available");
+        _showSnackBar("Location required");
         return;
       }
 
       final distance = Geolocator.distanceBetween(
-        location.latitude,
-        location.longitude,
-        session.latitude!,
-        session.longitude!,
+        location.latitude, location.longitude,
+        session.latitude ?? 0, session.longitude ?? 0,
       );
 
-      const double allowedDistance = 20.0;
-      if (distance > allowedDistance) {
-        _showSnackBar("You are not in classroom range");
+      if (distance > 20.0) {
+        _showSnackBar("Not in range ($distance m)");
         return;
       }
 
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
 
       final result = await _firestoreService.markAttendance(
-        studentId: currentUser.uid,
+        studentId: user.uid,
         subjectId: session.subjectId,
         sessionId: session.id,
       );
 
-      if (result == "SUCCESS") {
-        _showSnackBar("Attendance Marked Successful");
-        _loadAllData();
-      } else if (result == "ALREADY_MARKED") {
-        _showSnackBar("Already Marked");
-      } else if (result == "NOT_ENROLLED") {
-        _showSnackBar("You are not enrolled in this subject");
-      } else {
-        _showSnackBar("Attendance Failed");
-      }
-
-    } finally {
-      if (mounted) {
-        setState(() {
-          isProcessing = false;
-        });
-      }
+      _showSnackBar(result == "SUCCESS" ? "Attendance Marked!" : "Failed: $result");
+      if (result == "SUCCESS") _loadAllData();
+    } catch (e) {
+      _showSnackBar("Error during verification");
     }
   }
 
@@ -255,99 +214,96 @@ class _StudentDashboardState extends State<StudentDashboard> {
       appBar: AppBar(
         title: const Text('Student Dashboard'),
         actions: [
-          IconButton(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InboxScreen())),
-            icon: const Icon(Icons.mail),
-          ),
+          IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InboxScreen())), icon: const Icon(Icons.mail_outline)),
           IconButton(onPressed: _loadAllData, icon: const Icon(Icons.refresh))
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
+      body: _isLoading 
+        ? const Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _joinCodeController,
-                    decoration: const InputDecoration(
-                      labelText: 'Enter Join Code',
-                      border: OutlineInputBorder(),
+                _buildSectionHeader("Join Subject", Icons.add_link),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _joinCodeController,
+                            decoration: const InputDecoration(labelText: 'Join Code', border: OutlineInputBorder()),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton(
+                          onPressed: _isActionProcessing ? null : _joinSubject,
+                          child: const Text("Join"),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: isProcessing ? null : _joinSubject,
-                  child: const Text("Join"),
+
+                const SizedBox(height: 24),
+                _buildSectionHeader("Verification", Icons.verified_user),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
+                    icon: const Icon(Icons.camera_alt),
+                    onPressed: _isActionProcessing ? null : _startVerification,
+                    label: Text(_isActionProcessing ? "Processing..." : "Start Verification"),
+                  ),
                 ),
+
+                const SizedBox(height: 24),
+                _buildSectionHeader("Attendance Analytics", Icons.analytics),
+                if (_subjects.isEmpty)
+                  const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text("Join a subject to see analytics"))))
+                else
+                  ..._subjects.map((subject) {
+                    final stats = _analytics[subject['id']];
+                    final statsText = stats != null ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" : "...";
+                    return Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.book, color: Colors.blue),
+                        title: Text(subject['name'] ?? 'No Name'),
+                        subtitle: Text("Teacher: ${subject['teacherName'] ?? 'Unknown'}"),
+                        trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                      ),
+                    );
+                  }),
+
+                const SizedBox(height: 24),
+                _buildSectionHeader("Active Enrolled Sessions", Icons.sensors),
+                if (_activeSessions.isEmpty)
+                  const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text("No active sessions"))))
+                else
+                  ..._activeSessions.map((session) => Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.radar, color: Colors.green),
+                      title: Text("Subject: ${session.subjectId}"),
+                      subtitle: Text("Expires at: ${session.startTime.add(Duration(minutes: session.duration)).hour}:${session.startTime.add(Duration(minutes: session.duration)).minute}"),
+                    ),
+                  )),
               ],
             ),
-            
-            const SizedBox(height: 20),
+          ),
+    );
+  }
 
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue, 
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 50),
-              ),
-              onPressed: isProcessing ? null : _startVerification,
-              child: isProcessing 
-                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text('Start Verification'),
-            ),
-
-            const SizedBox(height: 20),
-            const Text("Your Attendance Analytics", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            
-            _subjects.isEmpty
-                ? const Center(child: Padding(
-                    padding: EdgeInsets.all(20.0),
-                    child: Text('No enrolled subjects available'),
-                  ))
-                : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _subjects.length,
-                    itemBuilder: (context, index) {
-                      final subject = _subjects[index];
-                      final stats = _analytics[subject['id']];
-                      final statsText = stats != null 
-                          ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" 
-                          : "Loading...";
-                      return ListTile(
-                        title: Text(subject['name'] ?? 'No Name'),
-                        subtitle: Text('Teacher: ${subject['teacherName'] ?? 'Unknown'}'),
-                        trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                      );
-                    },
-                  ),
-
-            const Divider(),
-            const Text("Active Sessions", style: TextStyle(fontWeight: FontWeight.bold)),
-            
-            _activeSessions.isEmpty
-                ? const Center(child: Padding(
-                    padding: EdgeInsets.all(20.0),
-                    child: Text('No active enrolled sessions'),
-                  ))
-                : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _activeSessions.length,
-                    itemBuilder: (context, index) {
-                      final session = _activeSessions[index];
-                      return ListTile(
-                        title: Text("Subject ID: ${session.subjectId}"),
-                        subtitle: Text("Start: ${session.startTime} | Duration: ${session.duration} min"),
-                      );
-                    },
-                  ),
-          ],
-        ),
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12.0),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.blue, size: 20),
+          const SizedBox(width: 8),
+          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }

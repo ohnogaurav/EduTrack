@@ -23,6 +23,12 @@ class SessionModel {
     this.longitude,
   });
 
+  bool get isExpired {
+    final now = DateTime.now();
+    final endTime = startTime.add(Duration(minutes: duration));
+    return now.isAfter(endTime);
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'subjectId': subjectId,

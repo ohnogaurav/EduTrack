@@ -167,12 +167,8 @@ class FirestoreService {
         return SessionModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
       }).toList();
 
-      DateTime now = DateTime.now();
-
-      return sessions.where((session) {
-        DateTime endTime = session.startTime.add(Duration(minutes: session.duration));
-        return now.isBefore(endTime);
-      }).toList();
+      // MODULE 15: Filter out expired sessions
+      return sessions.where((session) => !session.isExpired).toList();
     } catch (e) {
       print("FIRESTORE ERROR: $e");
       return [];
@@ -213,11 +209,22 @@ class FirestoreService {
     required String sessionId,
   }) async {
     try {
+      // 1. Check if enrollment exists
       final isEnrolled = await isStudentEnrolled(studentId, subjectId);
       if (!isEnrolled) {
         return "NOT_ENROLLED";
       }
 
+      // 2. Fetch and verify session (MODULE 15 Backend Safety)
+      DocumentSnapshot sessionDoc = await _db.collection('sessions').doc(sessionId).get();
+      if (!sessionDoc.exists) return "SESSION_NOT_FOUND";
+      
+      final session = SessionModel.fromMap(sessionDoc.data() as Map<String, dynamic>, sessionDoc.id);
+      if (session.isCancelled || !session.isActive || session.isExpired) {
+        return "SESSION_EXPIRED";
+      }
+
+      // 3. Check for duplicate
       QuerySnapshot duplicate = await _db
           .collection('attendance')
           .where('studentId', isEqualTo: studentId)
@@ -228,6 +235,7 @@ class FirestoreService {
         return "ALREADY_MARKED";
       }
 
+      // 4. Create attendance
       await _db.collection('attendance').add({
         'studentId': studentId,
         'subjectId': subjectId,
@@ -395,7 +403,6 @@ class FirestoreService {
     }
   }
 
-  // MODULE 14: Messaging Methods
   Future<void> sendMessage({
     required String senderId,
     required String targetType,
@@ -424,13 +431,11 @@ class FirestoreService {
 
   Future<List<Map<String, dynamic>>> getMessagesForStudent(String studentId) async {
     try {
-      // Query 1: All broadcast messages
       QuerySnapshot broadcastMessages = await _db
           .collection('messages')
           .where('targetType', isEqualTo: 'all')
           .get();
 
-      // Query 2: Personal or Subject-specific messages
       QuerySnapshot targetedMessages = await _db
           .collection('messages')
           .where('targetIds', arrayContains: studentId)
@@ -450,7 +455,6 @@ class FirestoreService {
         allMessages.add(data);
       }
 
-      // Sort by timestamp DESC
       allMessages.sort((a, b) {
         Timestamp tA = a['timestamp'] ?? Timestamp.now();
         Timestamp tB = b['timestamp'] ?? Timestamp.now();
