@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
-import '../student/student_dashboard.dart';
-import '../teacher/teacher_dashboard.dart';
+import '../home/main_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final String role;
@@ -20,7 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -37,15 +36,10 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         _showSnackBar("Login Successful");
         
-        if (role == 'student') {
+        if (mounted) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const StudentDashboard()),
-          );
-        } else if (role == 'teacher') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TeacherDashboard()),
+            MaterialPageRoute(builder: (_) => MainScreen(role: role!)),
           );
         }
       }
@@ -63,17 +57,21 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             TextField(
               controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
+              decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: _passwordController,
-              decoration: const InputDecoration(labelText: 'Password'),
+              decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
               obscureText: true,
             ),
             const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () => _handleLogin(_emailController.text, _passwordController.text),
-              child: const Text('Login'),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => _handleLogin(_emailController.text, _passwordController.text),
+                child: const Text('Login'),
+              ),
             ),
             
             const SizedBox(height: 40),

@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../models/session_model.dart';
 import 'liveness_screen.dart';
-import 'inbox_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
-  const StudentDashboard({super.key});
+  final int selectedIndex;
+  const StudentDashboard({super.key, required this.selectedIndex});
 
   @override
   State<StudentDashboard> createState() => _StudentDashboardState();
@@ -21,6 +22,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
   
   List<Map<String, dynamic>> _subjects = [];
   List<SessionModel> _activeSessions = [];
+  List<Map<String, dynamic>> _messages = [];
   Map<String, Map<String, dynamic>> _analytics = {};
 
   bool _isLoading = true;
@@ -30,6 +32,14 @@ class _StudentDashboardState extends State<StudentDashboard> {
   void initState() {
     super.initState();
     _loadAllData();
+  }
+
+  @override
+  void didUpdateWidget(StudentDashboard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedIndex != oldWidget.selectedIndex) {
+      _loadAllData();
+    }
   }
 
   void _showSnackBar(String message) {
@@ -44,32 +54,36 @@ class _StudentDashboardState extends State<StudentDashboard> {
     if (user == null) return;
 
     try {
-      final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
-      final allSubjects = await _firestoreService.getAllSubjects();
-      final subjects = allSubjects.where((s) => enrolledSubjectIds.contains(s['id'])).toList();
-      final activeSessions = await _firestoreService.getActiveSessions();
-      final attendance = await _firestoreService.getAttendanceByStudent(user.uid);
+      if (widget.selectedIndex == 0 || widget.selectedIndex == 1) {
+        final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
+        final allSubjects = await _firestoreService.getAllSubjects();
+        final subjects = allSubjects.where((s) => enrolledSubjectIds.contains(s['id'])).toList();
+        final activeSessions = await _firestoreService.getActiveSessions();
+        final attendance = await _firestoreService.getAttendanceByStudent(user.uid);
 
-      Map<String, Map<String, dynamic>> stats = {};
-      for (var subject in subjects) {
-        final subjectId = subject['id'];
-        final sessions = await _firestoreService.getSessionsBySubject(subjectId);
-        final totalValidSessions = sessions.length;
-        final attendedCount = attendance.where((a) => a.subjectId == subjectId).length;
-        final percentage = totalValidSessions == 0 ? 0.0 : (attendedCount / totalValidSessions) * 100;
+        Map<String, Map<String, dynamic>> stats = {};
+        for (var subject in subjects) {
+          final subjectId = subject['id'];
+          final sessions = await _firestoreService.getSessionsBySubject(subjectId);
+          final totalValidSessions = sessions.length;
+          final attendedCount = attendance.where((a) => a.subjectId == subjectId).length;
+          final percentage = totalValidSessions == 0 ? 0.0 : (attendedCount / totalValidSessions) * 100;
 
-        stats[subjectId] = {
-          'attended': attendedCount,
-          'total': totalValidSessions,
-          'percentage': percentage.toStringAsFixed(1),
-        };
+          stats[subjectId] = {
+            'attended': attendedCount,
+            'total': totalValidSessions,
+            'percentage': percentage.toStringAsFixed(1),
+          };
+        }
+        setState(() {
+          _subjects = subjects;
+          _activeSessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
+          _analytics = stats;
+        });
+      } else if (widget.selectedIndex == 2) {
+        final messages = await _firestoreService.getMessagesForStudent(user.uid);
+        setState(() => _messages = messages);
       }
-
-      setState(() {
-        _subjects = subjects;
-        _activeSessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
-        _analytics = stats;
-      });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -210,88 +224,147 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Student Dashboard'),
-        actions: [
-          IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InboxScreen())), icon: const Icon(Icons.mail_outline)),
-          IconButton(onPressed: _loadAllData, icon: const Icon(Icons.refresh))
-        ],
-      ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionHeader("Join Subject", Icons.add_link),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _joinCodeController,
-                            decoration: const InputDecoration(labelText: 'Join Code', border: OutlineInputBorder()),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        ElevatedButton(
-                          onPressed: _isActionProcessing ? null : _joinSubject,
-                          child: const Text("Join"),
-                        ),
-                      ],
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+
+    switch (widget.selectedIndex) {
+      case 0:
+        return _buildHomeTab();
+      case 1:
+        return _buildSessionsTab();
+      case 2:
+        return _buildInboxTab();
+      case 3:
+        return _buildProfileTab();
+      default:
+        return const Center(child: Text("Page Not Found"));
+    }
+  }
+
+  Widget _buildHomeTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader("Join Subject", Icons.add_link),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _joinCodeController,
+                      decoration: const InputDecoration(labelText: 'Join Code', border: OutlineInputBorder()),
                     ),
                   ),
-                ),
-
-                const SizedBox(height: 24),
-                _buildSectionHeader("Verification", Icons.verified_user),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
-                    icon: const Icon(Icons.camera_alt),
-                    onPressed: _isActionProcessing ? null : _startVerification,
-                    label: Text(_isActionProcessing ? "Processing..." : "Start Verification"),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: _isActionProcessing ? null : _joinSubject,
+                    child: const Text("Join"),
                   ),
-                ),
-
-                const SizedBox(height: 24),
-                _buildSectionHeader("Attendance Analytics", Icons.analytics),
-                if (_subjects.isEmpty)
-                  const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text("Join a subject to see analytics"))))
-                else
-                  ..._subjects.map((subject) {
-                    final stats = _analytics[subject['id']];
-                    final statsText = stats != null ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" : "...";
-                    return Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.book, color: Colors.blue),
-                        title: Text(subject['name'] ?? 'No Name'),
-                        subtitle: Text("Teacher: ${subject['teacherName'] ?? 'Unknown'}"),
-                        trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                      ),
-                    );
-                  }),
-
-                const SizedBox(height: 24),
-                _buildSectionHeader("Active Enrolled Sessions", Icons.sensors),
-                if (_activeSessions.isEmpty)
-                  const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text("No active sessions"))))
-                else
-                  ..._activeSessions.map((session) => Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.radar, color: Colors.green),
-                      title: Text("Subject: ${session.subjectId}"),
-                      subtitle: Text("Expires at: ${session.startTime.add(Duration(minutes: session.duration)).hour}:${session.startTime.add(Duration(minutes: session.duration)).minute}"),
-                    ),
-                  )),
-              ],
+                ],
+              ),
             ),
           ),
+          const SizedBox(height: 24),
+          _buildSectionHeader("Verification", Icons.verified_user),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
+              icon: const Icon(Icons.camera_alt),
+              onPressed: _isActionProcessing ? null : _startVerification,
+              label: Text(_isActionProcessing ? "Processing..." : "Start Verification"),
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildSectionHeader("Analytics", Icons.analytics),
+          if (_subjects.isEmpty)
+            const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text("Join a subject to see analytics"))))
+          else
+            ..._subjects.map((subject) {
+              final stats = _analytics[subject['id']];
+              final statsText = stats != null ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" : "...";
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.book, color: Colors.blue),
+                  title: Text(subject['name'] ?? 'No Name'),
+                  subtitle: Text("Teacher: ${subject['teacherName'] ?? 'Unknown'}"),
+                  trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSessionsTab() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: _activeSessions.isEmpty
+          ? const Center(child: Text("No active sessions available"))
+          : ListView.builder(
+              itemCount: _activeSessions.length,
+              itemBuilder: (context, index) {
+                final session = _activeSessions[index];
+                return Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.sensors, color: Colors.green),
+                    title: Text("Subject: ${session.subjectId}"),
+                    subtitle: Text("Expires at: ${session.startTime.add(Duration(minutes: session.duration)).hour}:${session.startTime.add(Duration(minutes: session.duration)).minute.toString().padLeft(2, '0')}"),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildInboxTab() {
+    return _messages.isEmpty
+        ? const Center(child: Text("No messages"))
+        : ListView.builder(
+            padding: const EdgeInsets.all(16.0),
+            itemCount: _messages.length,
+            itemBuilder: (context, index) {
+              final msg = _messages[index];
+              final timestamp = msg['timestamp'] as Timestamp?;
+              final date = timestamp?.toDate() ?? DateTime.now();
+              return Card(
+                child: ListTile(
+                  title: Text(msg['message'] ?? ''),
+                  subtitle: Text("From: ${msg['senderId']}\n${date.day}/${date.month} ${date.hour}:${date.minute.toString().padLeft(2, '0')}"),
+                  isThreeLine: true,
+                ),
+              );
+            },
+          );
+  }
+
+  Widget _buildProfileTab() {
+    final user = FirebaseAuth.instance.currentUser;
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Center(
+        child: Column(
+          children: [
+            const CircleAvatar(radius: 50, child: Icon(Icons.person, size: 50)),
+            const SizedBox(height: 16),
+            Text(user?.email ?? "No Email", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text("Role: Student", style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+              },
+              child: const Text("Logout"),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
