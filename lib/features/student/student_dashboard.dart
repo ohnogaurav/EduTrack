@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../models/session_model.dart';
+import '../../core/theme/theme_controller.dart';
 import 'liveness_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
@@ -272,7 +274,11 @@ class _StudentDashboardState extends State<StudentDashboard> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary, 
+                foregroundColor: Colors.white, 
+                padding: const EdgeInsets.all(16)
+              ),
               icon: const Icon(Icons.camera_alt),
               onPressed: _isActionProcessing ? null : _startVerification,
               label: Text(_isActionProcessing ? "Processing..." : "Start Verification"),
@@ -288,10 +294,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
               final statsText = stats != null ? "${stats['attended']} / ${stats['total']} (${stats['percentage']}%)" : "...";
               return Card(
                 child: ListTile(
-                  leading: const Icon(Icons.book, color: Colors.blue),
+                  leading: Icon(Icons.book, color: Theme.of(context).colorScheme.primary),
                   title: Text(subject['name'] ?? 'No Name'),
                   subtitle: Text("Teacher: ${subject['teacherName'] ?? 'Unknown'}"),
-                  trailing: Text(statsText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                  trailing: Text(statsText, style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
                 ),
               );
             }),
@@ -344,26 +350,63 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   Widget _buildProfileTab() {
     final user = FirebaseAuth.instance.currentUser;
+    final themeController = context.watch<ThemeController>();
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Center(
-        child: Column(
-          children: [
-            const CircleAvatar(radius: 50, child: Icon(Icons.person, size: 50)),
-            const SizedBox(height: 16),
-            Text(user?.email ?? "No Email", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text("Role: Student", style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 24),
-            ElevatedButton(
+      child: Column(
+        children: [
+          const Center(
+            child: Column(
+              children: [
+                CircleAvatar(radius: 50, child: Icon(Icons.person, size: 50)),
+                SizedBox(height: 16),
+              ],
+            ),
+          ),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.email_outlined),
+                  title: const Text("Email"),
+                  subtitle: Text(user?.email ?? "No Email"),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: const Text("Role"),
+                  subtitle: const Text("Student"),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: SwitchListTile(
+              title: const Text("Dark Mode"),
+              secondary: const Icon(Icons.dark_mode_outlined),
+              value: themeController.isDark,
+              onChanged: (_) => themeController.toggleTheme(),
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.logout),
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
                 if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
               },
-              child: const Text("Logout"),
+              label: const Text("Logout"),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -373,7 +416,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
       padding: const EdgeInsets.symmetric(vertical: 12.0),
       child: Row(
         children: [
-          Icon(icon, color: Colors.blue, size: 20),
+          Icon(icon, color: Theme.of(context).colorScheme.primary, size: 20),
           const SizedBox(width: 8),
           Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         ],
