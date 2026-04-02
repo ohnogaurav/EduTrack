@@ -14,9 +14,14 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   final FirestoreService _firestoreService = FirestoreService();
   final TextEditingController _subjectController = TextEditingController();
   final TextEditingController _durationController = TextEditingController();
+  final TextEditingController _messageController = TextEditingController();
   
   List<Map<String, dynamic>> _mySubjects = [];
+  List<Map<String, dynamic>> _allStudents = [];
   String? _selectedSubjectId;
+  String _targetType = "all";
+  String? _targetStudentId;
+  String? _targetSubjectId;
 
   @override
   void initState() {
@@ -28,8 +33,10 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final subjects = await _firestoreService.getSubjectsByTeacher(user.uid);
+      final students = await _firestoreService.getAllStudents();
       setState(() {
         _mySubjects = subjects;
+        _allStudents = students;
         if (_selectedSubjectId != null && !_mySubjects.any((s) => s['id'] == _selectedSubjectId)) {
           _selectedSubjectId = null;
         }
@@ -41,6 +48,33 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  Future<void> _sendMessage() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (_messageController.text.trim().isEmpty) {
+      _showSnackBar("Please enter a message");
+      return;
+    }
+
+    List<String> targetIds = [];
+    if (_targetType == "student" && _targetStudentId != null) {
+      targetIds = [_targetStudentId!];
+    } else if (_targetType == "subject" && _targetSubjectId != null) {
+      targetIds = [_targetSubjectId!];
+    }
+
+    await _firestoreService.sendMessage(
+      senderId: user.uid,
+      targetType: _targetType,
+      targetIds: targetIds,
+      message: _messageController.text.trim(),
+    );
+
+    _messageController.clear();
+    _showSnackBar("Message Sent");
   }
 
   Future<void> _confirmAction(String title, String content, VoidCallback onConfirm) async {
@@ -123,6 +157,43 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
             }),
 
             const Divider(height: 40),
+            const Text('Send Announcement', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            TextField(
+              controller: _messageController,
+              decoration: const InputDecoration(labelText: 'Message Content'),
+            ),
+            DropdownButton<String>(
+              isExpanded: true,
+              value: _targetType,
+              items: const [
+                DropdownMenuItem(value: "all", child: Text("All Students")),
+                DropdownMenuItem(value: "subject", child: Text("Enrolled in Subject")),
+                DropdownMenuItem(value: "student", child: Text("Specific Student")),
+              ],
+              onChanged: (val) => setState(() => _targetType = val!),
+            ),
+            if (_targetType == "subject")
+              DropdownButton<String>(
+                isExpanded: true,
+                hint: const Text("Select Subject"),
+                value: _targetSubjectId,
+                items: _mySubjects.map((s) => DropdownMenuItem(value: s['id'] as String, child: Text(s['name']))).toList(),
+                onChanged: (val) => setState(() => _targetSubjectId = val),
+              ),
+            if (_targetType == "student")
+              DropdownButton<String>(
+                isExpanded: true,
+                hint: const Text("Select Student"),
+                value: _targetStudentId,
+                items: _allStudents.map((s) => DropdownMenuItem(value: s['id'] as String, child: Text(s['name']))).toList(),
+                onChanged: (val) => setState(() => _targetStudentId = val),
+              ),
+            ElevatedButton(
+              onPressed: _sendMessage,
+              child: const Text("Send Message"),
+            ),
+
+            const Divider(height: 40),
             const Text('Start Attendance Session', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             DropdownButton<String>(
               isExpanded: true,
@@ -174,6 +245,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   void dispose() {
     _subjectController.dispose();
     _durationController.dispose();
+    _messageController.dispose();
     super.dispose();
   }
 }

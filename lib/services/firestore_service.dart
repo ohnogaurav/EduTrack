@@ -134,7 +134,6 @@ class FirestoreService {
 
   Future<void> createSession(String subjectId, String teacherId, int duration) async {
     try {
-      // MODULE 13: Capture Teacher Location
       final location = await _locationService.getCurrentLocation();
       if (location == null) {
         throw Exception("Location not available. Cannot start session.");
@@ -170,7 +169,6 @@ class FirestoreService {
 
       DateTime now = DateTime.now();
 
-      // Filter sessions that have not expired
       return sessions.where((session) {
         DateTime endTime = session.startTime.add(Duration(minutes: session.duration));
         return now.isBefore(endTime);
@@ -391,6 +389,75 @@ class FirestoreService {
         }
       }
       return students;
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return [];
+    }
+  }
+
+  // MODULE 14: Messaging Methods
+  Future<void> sendMessage({
+    required String senderId,
+    required String targetType,
+    required List<String> targetIds,
+    required String message,
+  }) async {
+    try {
+      List<String> finalTargetIds = targetIds;
+      if (targetType == "all") {
+        finalTargetIds = [];
+      } else if (targetType == "subject" && targetIds.isNotEmpty) {
+        finalTargetIds = await getStudentsBySubject(targetIds.first);
+      }
+
+      await _db.collection('messages').add({
+        'senderId': senderId,
+        'message': message,
+        'timestamp': FieldValue.serverTimestamp(),
+        'targetType': targetType,
+        'targetIds': finalTargetIds,
+      });
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getMessagesForStudent(String studentId) async {
+    try {
+      // Query 1: All broadcast messages
+      QuerySnapshot broadcastMessages = await _db
+          .collection('messages')
+          .where('targetType', isEqualTo: 'all')
+          .get();
+
+      // Query 2: Personal or Subject-specific messages
+      QuerySnapshot targetedMessages = await _db
+          .collection('messages')
+          .where('targetIds', arrayContains: studentId)
+          .get();
+
+      List<Map<String, dynamic>> allMessages = [];
+      
+      for (var doc in broadcastMessages.docs) {
+        var data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        allMessages.add(data);
+      }
+      
+      for (var doc in targetedMessages.docs) {
+        var data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        allMessages.add(data);
+      }
+
+      // Sort by timestamp DESC
+      allMessages.sort((a, b) {
+        Timestamp tA = a['timestamp'] ?? Timestamp.now();
+        Timestamp tB = b['timestamp'] ?? Timestamp.now();
+        return tB.compareTo(tA);
+      });
+
+      return allMessages;
     } catch (e) {
       print("FIRESTORE ERROR: $e");
       return [];
