@@ -1,4 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:csv/csv.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../services/firestore_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/user_model.dart';
@@ -16,6 +20,7 @@ class SubjectDetailScreen extends StatefulWidget {
 class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   bool _isLoading = true;
+  bool _isExporting = false;
   
   List<UserModel> _enrolledStudents = [];
   List<SessionModel> _sessions = [];
@@ -34,48 +39,99 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
     try {
       final String subjectId = widget.subject['id'];
       
-      // 1. Fetch Enrolled Students
       final studentIds = await _firestoreService.getEnrolledStudentIds(subjectId);
       _enrolledStudents = await _firestoreService.getStudentsByIds(studentIds);
 
-      // 2. Fetch All Sessions for this subject (already filtered for isCancelled in service)
       _sessions = await _firestoreService.getSessionsBySubject(subjectId);
       _sessions.sort((a, b) => b.startTime.compareTo(a.startTime));
 
-      // 3. Fetch All Attendance for this subject
       final allAttendance = await _firestoreService.getAttendanceBySubject(subjectId);
       _totalAttendanceCount = allAttendance.length;
 
-      // 4. Build Attendance Maps
       Map<String, int> studentCounts = {};
       Map<String, int> sessionCounts = {};
 
       for (var att in allAttendance) {
-        // Count per student
         studentCounts[att.studentId] = (studentCounts[att.studentId] ?? 0) + 1;
-        // Count per session
         sessionCounts[att.sessionId] = (sessionCounts[att.sessionId] ?? 0) + 1;
       }
 
       _studentAttendanceCount = studentCounts;
       _sessionAttendanceCount = sessionCounts;
 
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print("Error loading subject insights: $e");
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint("Error loading subject insights: $e");
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  Future<void> _exportAttendance() async {
+    if (_enrolledStudents.isEmpty) {
+      _showSnackBar("No students to export");
+      return;
+    }
+
+    setState(() => _isExporting = true);
+
+    try {
+      List<List<dynamic>> rows = [];
+      
+      // Header
+      rows.add(["Name", "Email", "Attended", "Total", "Percentage"]);
+
+      // Student Data
+      for (var student in _enrolledStudents) {
+        final attended = _studentAttendanceCount[student.id] ?? 0;
+        final total = _sessions.length;
+        final percentage = total == 0 ? "0.0%" : "${((attended / total) * 100).toStringAsFixed(1)}%";
+        
+        rows.add([
+          student.name,
+          student.email,
+          attended,
+          total,
+          percentage
+        ]);
+      }
+
+      String csvData = const ListToCsvConverter().convert(rows);
+      
+      final directory = await getTemporaryDirectory();
+      final path = "${directory.path}/attendance_${widget.subject['name'].toString().replaceAll(' ', '_')}.csv";
+      final file = File(path);
+      
+      await file.writeAsString(csvData);
+
+      if (mounted) {
+        await Share.shareXFiles([XFile(path)], text: 'Attendance Report for ${widget.subject['name']}');
+      }
+    } catch (e) {
+      debugPrint("Export Error: $e");
+      _showSnackBar("Failed to export CSV");
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final String joinCode = widget.subject['joinCode'] ?? 'No Code';
     
-    // Calculate Average Attendance %
     double avgAttendance = 0;
     if (_enrolledStudents.isNotEmpty && _sessions.isNotEmpty) {
       int totalPossible = _enrolledStudents.length * _sessions.length;
@@ -83,7 +139,18 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.subject['name'])),
+      appBar: AppBar(
+        title: Text(widget.subject['name']),
+        actions: [
+          IconButton(
+            icon: _isExporting 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.download),
+            onPressed: _isExporting ? null : _exportAttendance,
+            tooltip: "Export CSV",
+          )
+        ],
+      ),
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator())
         : SingleChildScrollView(
@@ -91,7 +158,6 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // SUMMARY SECTION
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
