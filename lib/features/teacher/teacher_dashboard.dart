@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../../services/firestore_service.dart';
+import '../../core/theme/theme_controller.dart';
 import 'subject_detail_screen.dart';
 
 class TeacherDashboard extends StatefulWidget {
@@ -146,6 +148,26 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     }
   }
 
+  Future<void> _confirmAction(String title, String content, VoidCallback onConfirm) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              onConfirm();
+            }, 
+            child: const Text("Confirm")
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
@@ -184,6 +206,10 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Colors.white,
+                      ),
                       icon: const Icon(Icons.add),
                       onPressed: _isActionProcessing ? null : _createSubject,
                       label: Text(_isActionProcessing ? "Processing..." : "Create Subject"),
@@ -202,8 +228,20 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
               final String joinCode = subject['joinCode'] ?? 'No Code';
               return Card(
                 child: ListTile(
-                  leading: const Icon(Icons.class_, color: Colors.blue),
+                  leading: Icon(Icons.class_, color: Theme.of(context).colorScheme.primary),
                   title: Text("${subject['name']} ($joinCode)"),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () => _confirmAction(
+                      "Delete Subject", 
+                      "Are you sure?",
+                      () async {
+                        await _firestoreService.deleteSubject(subject['id']);
+                        _showSnackBar("Subject Deleted");
+                        _refreshData();
+                      }
+                    ),
+                  ),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -249,6 +287,10 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Colors.white,
+                      ),
                       icon: const Icon(Icons.play_arrow),
                       onPressed: _isActionProcessing ? null : _startSession,
                       label: const Text("Start Session"),
@@ -318,6 +360,10 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Colors.white,
+                      ),
                       icon: const Icon(Icons.send),
                       onPressed: _isActionProcessing ? null : _sendMessage,
                       label: const Text("Send Announcement"),
@@ -334,26 +380,67 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
 
   Widget _buildProfileTab() {
     final user = FirebaseAuth.instance.currentUser;
+    final themeController = context.watch<ThemeController>();
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Center(
-        child: Column(
-          children: [
-            const CircleAvatar(radius: 50, child: Icon(Icons.school, size: 50)),
-            const SizedBox(height: 16),
-            Text(user?.email ?? "No Email", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text("Role: Teacher", style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 24),
-            ElevatedButton(
+      child: Column(
+        children: [
+          Center(
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 50, 
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  child: const Icon(Icons.school, size: 50, color: Colors.white)
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.email_outlined),
+                  title: const Text("Email"),
+                  subtitle: Text(user?.email ?? "No Email"),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: const Text("Role"),
+                  subtitle: const Text("Teacher"),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: SwitchListTile(
+              title: const Text("Dark Mode"),
+              secondary: const Icon(Icons.dark_mode_outlined),
+              value: themeController.isDark,
+              onChanged: (_) => themeController.toggleTheme(),
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.logout),
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
                 if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
               },
-              child: const Text("Logout"),
+              label: const Text("Logout"),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -363,7 +450,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
       padding: const EdgeInsets.symmetric(vertical: 12.0),
       child: Row(
         children: [
-          Icon(icon, color: Colors.blue, size: 20),
+          Icon(icon, color: Theme.of(context).colorScheme.primary, size: 20),
           const SizedBox(width: 8),
           Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         ],

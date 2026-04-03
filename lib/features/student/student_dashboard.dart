@@ -8,6 +8,7 @@ import '../../services/location_service.dart';
 import '../../models/session_model.dart';
 import '../../core/theme/theme_controller.dart';
 import 'liveness_screen.dart';
+import 'inbox_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   final int selectedIndex;
@@ -26,13 +27,18 @@ class _StudentDashboardState extends State<StudentDashboard> {
   List<SessionModel> _activeSessions = [];
   List<Map<String, dynamic>> _messages = [];
   Map<String, Map<String, dynamic>> _analytics = {};
+  Map<String, String> _subjectNameMap = {};
 
   bool _isLoading = true;
   bool _isActionProcessing = false;
+  bool _isJoinInputEmpty = true;
 
   @override
   void initState() {
     super.initState();
+    _joinCodeController.addListener(() {
+      setState(() => _isJoinInputEmpty = _joinCodeController.text.trim().isEmpty);
+    });
     _loadAllData();
   }
 
@@ -56,10 +62,15 @@ class _StudentDashboardState extends State<StudentDashboard> {
     if (user == null) return;
 
     try {
+      final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
+      final allSubjects = await _firestoreService.getAllSubjects();
+      final subjects = allSubjects.where((s) => enrolledSubjectIds.contains(s['id'])).toList();
+      
+      final Map<String, String> sMap = {
+        for (var s in allSubjects) s['id']: s['name'] ?? 'Unknown'
+      };
+
       if (widget.selectedIndex == 0 || widget.selectedIndex == 1) {
-        final enrolledSubjectIds = await _firestoreService.getSubjectsByStudent(user.uid);
-        final allSubjects = await _firestoreService.getAllSubjects();
-        final subjects = allSubjects.where((s) => enrolledSubjectIds.contains(s['id'])).toList();
         final activeSessions = await _firestoreService.getActiveSessions();
         final attendance = await _firestoreService.getAttendanceByStudent(user.uid);
 
@@ -81,10 +92,14 @@ class _StudentDashboardState extends State<StudentDashboard> {
           _subjects = subjects;
           _activeSessions = activeSessions.where((s) => enrolledSubjectIds.contains(s.subjectId)).toList();
           _analytics = stats;
+          _subjectNameMap = sMap;
         });
       } else if (widget.selectedIndex == 2) {
         final messages = await _firestoreService.getMessagesForStudent(user.uid);
-        setState(() => _messages = messages);
+        setState(() {
+          _messages = messages;
+          _subjectNameMap = sMap;
+        });
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -92,12 +107,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 
   Future<void> _joinSubject() async {
-    if (_isActionProcessing) return;
+    if (_isActionProcessing || _isJoinInputEmpty) return;
     final code = _joinCodeController.text.trim();
-    if (code.isEmpty) {
-      _showSnackBar("Please enter a join code");
-      return;
-    }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -142,7 +153,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
       if (sessions.length == 1) {
         await _processSession(sessions.first);
       } else {
-        final selectedSession = await _showSessionSelectionDialog(sessions);
+        final selectedSession = await _showSessionSelectionSheet(sessions);
         if (selectedSession != null) {
           await _processSession(selectedSession);
         }
@@ -152,24 +163,24 @@ class _StudentDashboardState extends State<StudentDashboard> {
     }
   }
 
-  Future<SessionModel?> _showSessionSelectionDialog(List<SessionModel> sessions) async {
-    return showDialog<SessionModel>(
+  Future<SessionModel?> _showSessionSelectionSheet(List<SessionModel> sessions) async {
+    return showModalBottomSheet<SessionModel>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Select Session"),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: sessions.length,
-            itemBuilder: (context, index) {
-              final session = sessions[index];
-              return ListTile(
-                title: Text("Subject ID: ${session.subjectId}"),
-                onTap: () => Navigator.pop(context, session),
-              );
-            },
-          ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Select Session", style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            ...sessions.map((session) => ListTile(
+              leading: const Icon(Icons.class_, color: Colors.blue),
+              title: Text(_subjectNameMap[session.subjectId] ?? 'Unknown Subject'),
+              subtitle: const Text("Tap to mark attendance"),
+              onTap: () => Navigator.pop(context, session),
+            )),
+          ],
         ),
       ),
     );
@@ -204,7 +215,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
       );
 
       if (distance > 20.0) {
-        _showSnackBar("Not in range ($distance m)");
+        _showSnackBar("Not in range (${distance.toInt()} m)");
         return;
       }
 
@@ -217,8 +228,12 @@ class _StudentDashboardState extends State<StudentDashboard> {
         sessionId: session.id,
       );
 
-      _showSnackBar(result == "SUCCESS" ? "Attendance Marked!" : "Failed: $result");
-      if (result == "SUCCESS") _loadAllData();
+      if (result == "SUCCESS") {
+        _showSnackBar("Attendance Marked!");
+        _loadAllData();
+      } else {
+        _showSnackBar("Failed: $result");
+      }
     } catch (e) {
       _showSnackBar("Error during verification");
     }
@@ -262,7 +277,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                   ),
                   const SizedBox(width: 10),
                   ElevatedButton(
-                    onPressed: _isActionProcessing ? null : _joinSubject,
+                    onPressed: (_isActionProcessing || _isJoinInputEmpty) ? null : _joinSubject,
                     child: const Text("Join"),
                   ),
                 ],
@@ -276,7 +291,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary, 
-                foregroundColor: Colors.white, 
+                foregroundColor: Theme.of(context).colorScheme.onPrimary, 
                 padding: const EdgeInsets.all(16)
               ),
               icon: const Icon(Icons.camera_alt),
@@ -307,29 +322,34 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 
   Widget _buildSessionsTab() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: _activeSessions.isEmpty
-          ? const Center(child: Text("No active sessions available"))
-          : ListView.builder(
-              itemCount: _activeSessions.length,
-              itemBuilder: (context, index) {
-                final session = _activeSessions[index];
-                return Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.sensors, color: Colors.green),
-                    title: Text("Subject: ${session.subjectId}"),
-                    subtitle: Text("Expires at: ${session.startTime.add(Duration(minutes: session.duration)).hour}:${session.startTime.add(Duration(minutes: session.duration)).minute.toString().padLeft(2, '0')}"),
-                  ),
-                );
-              },
+    if (_activeSessions.isEmpty) {
+      return const Center(child: Text("No active sessions available"));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _activeSessions.length,
+      itemBuilder: (context, index) {
+        final session = _activeSessions[index];
+        final expiry = session.startTime.add(Duration(minutes: session.duration));
+        final formattedTime = "${expiry.hour}:${expiry.minute.toString().padLeft(2, '0')}";
+        return Card(
+          child: ListTile(
+            leading: const Icon(Icons.wifi_tethering, color: Colors.green),
+            title: Text(_subjectNameMap[session.subjectId] ?? "Unknown Subject"),
+            subtitle: Text("Ends at $formattedTime"),
+            trailing: const Text(
+              "LIVE",
+              style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
             ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildInboxTab() {
     return _messages.isEmpty
-        ? const Center(child: Text("No messages"))
+        ? const Center(child: Text("No messages yet"))
         : ListView.builder(
             padding: const EdgeInsets.all(16.0),
             itemCount: _messages.length,
@@ -337,10 +357,21 @@ class _StudentDashboardState extends State<StudentDashboard> {
               final msg = _messages[index];
               final timestamp = msg['timestamp'] as Timestamp?;
               final date = timestamp?.toDate() ?? DateTime.now();
+              final dateStr = "${date.day} ${_getMonth(date.month)}, ${date.hour}:${date.minute.toString().padLeft(2, '0')} ${date.hour >= 12 ? 'PM' : 'AM'}";
+              
               return Card(
                 child: ListTile(
                   title: Text(msg['message'] ?? ''),
-                  subtitle: Text("From: ${msg['senderId']}\n${date.day}/${date.month} ${date.hour}:${date.minute.toString().padLeft(2, '0')}"),
+                  subtitle: FutureBuilder<String?>(
+                    future: _firestoreService.getUserName(msg['senderId']),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return Text("Loading...\n$dateStr");
+                      }
+                      final senderName = snapshot.data ?? "Teacher";
+                      return Text("From: $senderName\n$dateStr");
+                    }
+                  ),
                   isThreeLine: true,
                 ),
               );
@@ -348,19 +379,28 @@ class _StudentDashboardState extends State<StudentDashboard> {
           );
   }
 
+  String _getMonth(int m) {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return months[m - 1];
+  }
+
   Widget _buildProfileTab() {
     final user = FirebaseAuth.instance.currentUser;
-    final themeController = context.watch<ThemeController>();
+    final themeController = Provider.of<ThemeController>(context);
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          const Center(
+          Center(
             child: Column(
               children: [
-                CircleAvatar(radius: 50, child: Icon(Icons.person, size: 50)),
-                SizedBox(height: 16),
+                CircleAvatar(
+                  radius: 50, 
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  child: const Icon(Icons.person, size: 50, color: Colors.white)
+                ),
+                const SizedBox(height: 16),
               ],
             ),
           ),

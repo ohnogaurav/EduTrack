@@ -53,6 +53,32 @@ class FirestoreService {
     }
   }
 
+  Future<UserModel?> getUserById(String userId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('users').doc(userId).get();
+      if (doc.exists) {
+        return UserModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      }
+      return null;
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return null;
+    }
+  }
+
+  Future<SubjectModel?> getSubjectById(String subjectId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('subjects').doc(subjectId).get();
+      if (doc.exists) {
+        return SubjectModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      }
+      return null;
+    } catch (e) {
+      print("FIRESTORE ERROR: $e");
+      return null;
+    }
+  }
+
   Future<void> createSubject(String name, String teacherId, String teacherName) async {
     try {
       final joinCode = generateJoinCode();
@@ -167,7 +193,6 @@ class FirestoreService {
         return SessionModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
       }).toList();
 
-      // MODULE 15: Filter out expired sessions
       return sessions.where((session) => !session.isExpired).toList();
     } catch (e) {
       print("FIRESTORE ERROR: $e");
@@ -209,13 +234,11 @@ class FirestoreService {
     required String sessionId,
   }) async {
     try {
-      // 1. Check if enrollment exists
       final isEnrolled = await isStudentEnrolled(studentId, subjectId);
       if (!isEnrolled) {
         return "NOT_ENROLLED";
       }
 
-      // 2. Fetch and verify session (MODULE 15 Backend Safety)
       DocumentSnapshot sessionDoc = await _db.collection('sessions').doc(sessionId).get();
       if (!sessionDoc.exists) return "SESSION_NOT_FOUND";
       
@@ -224,7 +247,6 @@ class FirestoreService {
         return "SESSION_EXPIRED";
       }
 
-      // 3. Check for duplicate
       QuerySnapshot duplicate = await _db
           .collection('attendance')
           .where('studentId', isEqualTo: studentId)
@@ -235,7 +257,6 @@ class FirestoreService {
         return "ALREADY_MARKED";
       }
 
-      // 4. Create attendance
       await _db.collection('attendance').add({
         'studentId': studentId,
         'subjectId': subjectId,
