@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -193,10 +194,40 @@ class _StudentDashboardState extends State<StudentDashboard> {
         return;
       }
 
-      final livenessResult = await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LivenessScreen()),
-      );
+      bool? livenessResult;
+      if (kIsWeb) {
+        livenessResult = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.face, color: Colors.blue),
+                SizedBox(width: 8),
+                Text("Liveness Verification"),
+              ],
+            ),
+            content: const Text(
+              "You are running the Web Demo. The mobile-only ML-based face liveness verification is simulated on Web.",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Simulate Fail"),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text("Simulate Success"),
+              ),
+            ],
+          ),
+        );
+      } else {
+        livenessResult = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const LivenessScreen()),
+        );
+      }
 
       if (livenessResult != true) {
         _showSnackBar("Liveness Failed");
