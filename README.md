@@ -6,7 +6,7 @@ EduTrack is a modern, secure, and location-aware attendance tracking application
 
 ## 🚀 Live Web Demo
 The production assets of this project are automatically built and deployed live:
-👉 **[Try the Web Demo Live!](https://ohnogaurav.github.io/EduTrackCapstone/)**
+👉 **[Try the Web Demo Live!](https://ohnogaurav.github.io/EduTrack/)**
 
 *Note: On the Web demo, the mobile-only ML-based face liveness verification is simulated using a mock verification dialog, allowing recruiters and developers to test the full attendance flow directly in the browser.*
 
@@ -86,8 +86,8 @@ lib/
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/ohnogaurav/EduTrackCapstone.git
-   cd EduTrackCapstone
+   git clone https://github.com/ohnogaurav/EduTrack.git
+   cd EduTrack
    ```
 
 2. **Install Dependencies**:
